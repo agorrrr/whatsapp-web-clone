@@ -7,16 +7,21 @@ export class AudioRecorderService {
   async start(): Promise<void> {
     this.audioChunks = [];
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    
-    // Choose supported mimeType
-    let mimeType = 'audio/webm';
-    if (!MediaRecorder.isTypeSupported('audio/webm')) {
-      if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4';
-      } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-        mimeType = 'audio/ogg';
-      } else {
-        mimeType = '';
+
+    // Choose supported mimeType for cross-platform playback (Safari / Chrome / Android / iOS)
+    let mimeType = '';
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/aac',
+      'audio/ogg',
+    ];
+
+    for (const cand of candidates) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(cand)) {
+        mimeType = cand;
+        break;
       }
     }
 
@@ -25,7 +30,7 @@ export class AudioRecorderService {
       : new MediaRecorder(this.stream);
 
     this.mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
+      if (event.data && event.data.size > 0) {
         this.audioChunks.push(event.data);
       }
     };
@@ -33,7 +38,7 @@ export class AudioRecorderService {
     this.mediaRecorder.start(100);
   }
 
-  stop(): Promise<{ blob: Blob; url: string; duration: number }> {
+  stop(): Promise<{ base64Url: string; duration: number }> {
     return new Promise((resolve, reject) => {
       if (!this.mediaRecorder) {
         return reject(new Error('Recorder not initialized'));
@@ -42,23 +47,30 @@ export class AudioRecorderService {
       this.mediaRecorder.onstop = () => {
         const mime = this.mediaRecorder?.mimeType || 'audio/webm';
         const blob = new Blob(this.audioChunks, { type: mime });
-        const url = URL.createObjectURL(blob);
-        
-        // Stop all audio tracks
+
+        // Stop all audio microphone tracks
         if (this.stream) {
           this.stream.getTracks().forEach((track) => track.stop());
           this.stream = null;
         }
 
-        // Get approximate duration using Audio element
-        const tempAudio = new Audio(url);
-        tempAudio.onloadedmetadata = () => {
-          const duration = Math.round(tempAudio.duration) || 1;
-          resolve({ blob, url, duration });
+        // Convert Blob to Base64 Data URL so it can be transmitted across users
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64Url = reader.result as string;
+
+          // Estimate duration
+          const tempAudio = new Audio(base64Url);
+          tempAudio.onloadedmetadata = () => {
+            const duration = Math.round(tempAudio.duration) || 2;
+            resolve({ base64Url, duration });
+          };
+          tempAudio.onerror = () => {
+            resolve({ base64Url, duration: Math.max(1, Math.round(blob.size / 16000)) });
+          };
         };
-        tempAudio.onerror = () => {
-          resolve({ blob, url, duration: 3 });
-        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(blob);
       };
 
       this.mediaRecorder.stop();
@@ -67,7 +79,9 @@ export class AudioRecorderService {
 
   cancel(): void {
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
+      try {
+        this.mediaRecorder.stop();
+      } catch {}
     }
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());
@@ -77,7 +91,7 @@ export class AudioRecorderService {
   }
 }
 
-// Generates a mock audio beep / melody data URL if real microphone is not available or for demo contacts
+// Generates a mock audio beep / melody data URL for fallback
 export function createDemoAudioDataUrl(): string {
   if (typeof window === 'undefined') return '';
   try {
@@ -89,12 +103,10 @@ export function createDemoAudioDataUrl(): string {
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < numSamples; i++) {
-      // Pleasant chime sound (440Hz decaying tone)
       const t = i / sampleRate;
       data[i] = Math.sin(2 * Math.PI * 440 * t) * Math.exp(-2 * t) * 0.3;
     }
 
-    // Convert to wav blob
     const wavBlob = bufferToWave(buffer, numSamples);
     return URL.createObjectURL(wavBlob);
   } catch {
@@ -121,20 +133,19 @@ function bufferToWave(abuffer: AudioBuffer, len: number): Blob {
     pos += 4;
   }
 
-  // write WAVE header
   setUint32(0x46464952); // "RIFF"
-  setUint32(length - 8); // file length - 8
+  setUint32(length - 8);
   setUint32(0x45564157); // "WAVE"
-  setUint32(0x20746d66); // "fmt " chunk
-  setUint32(16); // length = 16
-  setUint16(1); // PCM (uncompressed)
+  setUint32(0x20746d66); // "fmt "
+  setUint32(16);
+  setUint16(1); // PCM
   setUint16(numOfChan);
   setUint32(abuffer.sampleRate);
-  setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-  setUint16(numOfChan * 2); // block-align
-  setUint16(16); // 16-bit
-  setUint32(0x61746164); // "data" - chunk
-  setUint32(length - pos - 4); // chunk length
+  setUint32(abuffer.sampleRate * 2 * numOfChan);
+  setUint16(numOfChan * 2);
+  setUint16(16);
+  setUint32(0x61746164); // "data"
+  setUint32(length - pos - 4);
 
   for (let i = 0; i < abuffer.numberOfChannels; i++) {
     channels.push(abuffer.getChannelData(i));

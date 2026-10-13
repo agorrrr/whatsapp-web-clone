@@ -40,8 +40,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onCancel, onSend }
     const service = recorderServiceRef.current;
     if (service) {
       try {
-        const { url, duration } = await service.stop();
-        onSend(url, Math.max(duration, elapsedSeconds || 1));
+        const { base64Url, duration } = await service.stop();
+        onSend(base64Url, Math.max(duration, elapsedSeconds || 1));
       } catch {
         onSend('demo-sample-audio', Math.max(elapsedSeconds, 1));
       }

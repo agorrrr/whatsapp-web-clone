@@ -52,6 +52,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         setCurrentTime('0:00');
       };
 
+      audio.onerror = () => {
+        setIsPlaying(false);
+      };
+
       audioRef.current = audio;
 
       return () => {

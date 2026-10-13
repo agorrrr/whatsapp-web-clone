@@ -6,6 +6,7 @@ import { MessageBubble } from './MessageBubble';
 import { AudioRecorder } from './AudioRecorder';
 import { StickerPicker } from './StickerPicker';
 import { MediaPreviewModal } from './MediaPreviewModal';
+import { CameraCaptureModal } from './CameraCaptureModal';
 import {
   Smile,
   Paperclip,
@@ -15,6 +16,7 @@ import {
   Search,
   ArrowLeft,
   Image as ImageIcon,
+  Camera,
   X,
   Lock,
 } from 'lucide-react';
@@ -51,6 +53,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -290,7 +293,20 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             </button>
 
             {showAttachmentMenu && (
-              <div className="absolute bottom-12 left-0 bg-white dark:bg-[#233138] rounded-xl shadow-xl p-3 flex flex-col space-y-2 z-50 border border-[#e9edef] dark:border-[#2a3942]">
+              <div className="absolute bottom-12 left-0 bg-white dark:bg-[#233138] rounded-xl shadow-xl p-3 flex flex-col space-y-2 z-50 border border-[#e9edef] dark:border-[#2a3942] min-w-[180px]">
+                <button
+                  onClick={() => {
+                    setShowAttachmentMenu(false);
+                    setShowCamera(true);
+                  }}
+                  className="flex items-center space-x-3 text-xs font-medium text-[#111b21] dark:text-[#d1d7db] hover:bg-black/5 dark:hover:bg-white/5 p-2 rounded-lg"
+                >
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <span>Akses Kamera</span>
+                </button>
+
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="flex items-center space-x-3 text-xs font-medium text-[#111b21] dark:text-[#d1d7db] hover:bg-black/5 dark:hover:bg-white/5 p-2 rounded-lg"
@@ -298,7 +314,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white">
                     <ImageIcon className="w-5 h-5" />
                   </div>
-                  <span>Foto & Video</span>
+                  <span>Foto & Galeri</span>
                 </button>
               </div>
             )}
@@ -351,6 +367,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           onSelectEmoji={(emoji) => setInputText((prev) => prev + emoji)}
           onSelectSticker={handleSendSticker}
           onClose={() => setShowStickerPicker(false)}
+        />
+      )}
+
+      {/* Camera Capture Modal */}
+      {showCamera && (
+        <CameraCaptureModal
+          onCapture={(capturedUrl) => {
+            setShowCamera(false);
+            setPreviewImage(capturedUrl);
+          }}
+          onClose={() => setShowCamera(false)}
         />
       )}
 

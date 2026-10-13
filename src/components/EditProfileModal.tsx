@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { UserAccount } from '../types/chat';
-import { X, Camera, Check, User, FileText } from 'lucide-react';
+import { X, Camera, Check, User, FileText, Upload } from 'lucide-react';
 
 interface EditProfileModalProps {
   currentUser: UserAccount;
@@ -20,27 +20,49 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [avatar, setAvatar] = useState(currentUser.avatar);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const AVATAR_PRESETS = [
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80',
-  ];
-
+  // Compress and resize image to fit efficiently into JSON payload
   const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setAvatar(reader.result);
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_DIM = 400;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_DIM) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          }
+        } else {
+          if (height > MAX_DIM) {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          setAvatar(compressedDataUrl);
         }
       };
-      reader.readAsDataURL(file);
-    }
+      if (typeof event.target?.result === 'string') {
+        img.src = event.target.result;
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -81,7 +103,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       <div className="bg-white dark:bg-[#202c33] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-[#e9edef] dark:border-[#222e35] max-h-[90dvh] flex flex-col">
         {/* Header */}
         <div className="h-14 px-5 bg-[#008069] dark:bg-[#1f2c34] text-white flex items-center justify-between flex-shrink-0">
-          <span className="font-semibold text-base">Ubah Profil Saya</span>
+          <span className="font-semibold text-base">Ubah Foto Profil & Nama</span>
           <button
             onClick={onClose}
             className="p-1 rounded-full hover:bg-white/10 text-white transition-colors"
@@ -98,49 +120,41 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSave} className="p-5 space-y-4 overflow-y-auto flex-1">
-          {/* Avatar with upload overlay */}
+          {/* Own Photo Upload */}
           <div className="flex flex-col items-center">
-            <div className="relative group cursor-pointer">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="relative group cursor-pointer"
+              title="Klik untuk memilih foto dari galeri/perangkat"
+            >
               <img
                 src={avatar}
-                alt="Avatar"
-                className="w-24 h-24 rounded-full object-cover ring-4 ring-[#00a884]/30"
+                alt="Foto Profil"
+                className="w-28 h-28 rounded-full object-cover ring-4 ring-[#00a884]/40 shadow-md"
               />
-              <label className="absolute inset-0 rounded-full bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                <Camera className="w-6 h-6 mb-0.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wider">Ganti Foto</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarFile}
-                />
-              </label>
+              <div className="absolute inset-0 rounded-full bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                <Camera className="w-7 h-7 mb-1" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Ubah Foto</span>
+              </div>
             </div>
-            <label className="mt-2 text-xs text-[#00a884] font-medium cursor-pointer hover:underline">
-              Pilih foto dari perangkat
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarFile}
-              />
-            </label>
 
-            {/* Quick avatar presets */}
-            <div className="flex space-x-2 mt-3">
-              {AVATAR_PRESETS.map((p, idx) => (
-                <img
-                  key={idx}
-                  src={p}
-                  alt={`Preset ${idx}`}
-                  onClick={() => setAvatar(p)}
-                  className={`w-8 h-8 rounded-full object-cover cursor-pointer ring-2 transition-transform ${
-                    avatar === p ? 'ring-[#00a884] scale-110' : 'ring-transparent opacity-60 hover:opacity-100'
-                  }`}
-                />
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-3 px-3.5 py-1.5 rounded-lg bg-[#00a884]/10 hover:bg-[#00a884]/20 text-[#00a884] dark:text-[#25d366] text-xs font-semibold flex items-center space-x-1.5 transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Pilih Foto dari Galeri / Ponsel</span>
+            </button>
+
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarFile}
+            />
           </div>
 
           <div>
@@ -148,16 +162,16 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               Username
             </label>
             <div className="bg-[#f0f2f5] dark:bg-[#111b21] rounded-lg px-3 py-2 text-xs text-[#8696a0] font-mono">
-              @{currentUser.username} (tidak dapat diubah)
+              @{currentUser.username} (ID akun permanen)
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-[#00a884] mb-1">
-              Nama Tampilan
+              Nama Lengkap / Tampilan
             </label>
             <div className="flex items-center bg-[#f0f2f5] dark:bg-[#2a3942] rounded-lg px-3 py-2 text-sm">
-              <User className="w-4 h-4 text-[#8696a0] mr-2" />
+              <User className="w-4 h-4 text-[#8696a0] mr-2 flex-shrink-0" />
               <input
                 type="text"
                 required
@@ -173,7 +187,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               Info Status / Bio
             </label>
             <div className="flex items-center bg-[#f0f2f5] dark:bg-[#2a3942] rounded-lg px-3 py-2 text-sm">
-              <FileText className="w-4 h-4 text-[#8696a0] mr-2" />
+              <FileText className="w-4 h-4 text-[#8696a0] mr-2 flex-shrink-0" />
               <input
                 type="text"
                 value={about}
@@ -197,7 +211,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               className="flex-1 py-2.5 rounded-lg bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-semibold flex items-center justify-center space-x-1.5 shadow disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
-              <span>{loading ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
+              <span>{loading ? 'Menyimpan...' : 'Simpan Profil'}</span>
             </button>
           </div>
         </form>
