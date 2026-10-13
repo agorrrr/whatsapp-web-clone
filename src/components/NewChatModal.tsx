@@ -23,8 +23,9 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onAddContact, onClos
 
     const newContact: Contact = {
       id: `contact_${Date.now()}`,
+      username: name.trim().toLowerCase().replace(/\s+/g, ''),
       name: name.trim(),
-      phone: phone.trim(),
+      identifier: phone.trim(),
       about: about.trim(),
       avatar,
       isOnline: true,

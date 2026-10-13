@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Contact, Message, MessageType } from '../types/chat';
+import { ContactItem, Message, MessageType } from '../types/chat';
 import { MessageBubble } from './MessageBubble';
 import { AudioRecorder } from './AudioRecorder';
 import { StickerPicker } from './StickerPicker';
@@ -15,12 +15,13 @@ import {
   Search,
   ArrowLeft,
   Image as ImageIcon,
-  FileText,
   X,
+  Lock,
 } from 'lucide-react';
 
 interface ChatWindowProps {
-  contact: Contact;
+  contact: ContactItem;
+  currentUserId: string;
   messages: Message[];
   onSendMessage: (params: {
     type: MessageType;
@@ -37,6 +38,7 @@ interface ChatWindowProps {
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
   contact,
+  currentUserId,
   messages,
   onSendMessage,
   onReaction,
@@ -55,9 +57,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const docInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -92,7 +93,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       };
       reader.readAsDataURL(file);
     }
-    // reset input
     e.target.value = '';
     setShowAttachmentMenu(false);
   };
@@ -131,7 +131,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden">
-      {/* Top Chat Header */}
+      {/* Top Header */}
       <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between border-b border-[#e9edef] dark:border-[#222e35] select-none z-20">
         <div className="flex items-center space-x-3">
           {onBackMobile && (
@@ -150,12 +150,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           />
 
           <div className="flex flex-col cursor-pointer">
-            <span className="font-semibold text-sm text-[#111b21] dark:text-[#e9edef]">
-              {contact.name}
-            </span>
+            <div className="flex items-center space-x-1.5">
+              <span className="font-semibold text-sm text-[#111b21] dark:text-[#e9edef]">
+                {contact.name}
+              </span>
+              <span className="text-xs text-[#00a884] font-medium">
+                @{contact.username}
+              </span>
+            </div>
             <span className="text-[11px] text-[#667781] dark:text-[#8696a0]">
               {contact.isTyping ? (
-                <span className="text-[#00a884] font-medium">sedang mengetik...</span>
+                <span className="text-[#00a884] font-medium animate-pulse">sedang mengetik...</span>
               ) : contact.isOnline ? (
                 <span className="text-[#00a884]">online</span>
               ) : (
@@ -165,7 +170,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         </div>
 
-        {/* Right action icons (No call/video call as specified) */}
+        {/* Right menu (NO calls/video calls as required) */}
         <div className="flex items-center space-x-3 text-[#54656f] dark:text-[#aebac1] relative">
           <button className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors" title="Cari di chat">
             <Search className="w-5 h-5" />
@@ -181,7 +186,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             </button>
 
             {showMenu && (
-              <div className="absolute right-0 top-11 w-44 bg-white dark:bg-[#233138] rounded-md shadow-xl py-2 z-50 border border-[#e9edef] dark:border-[#2a3942] text-sm text-[#111b21] dark:text-[#d1d7db]">
+              <div className="absolute right-0 top-11 w-44 bg-white dark:bg-[#233138] rounded-xl shadow-xl py-2 z-50 border border-[#e9edef] dark:border-[#2a3942] text-sm text-[#111b21] dark:text-[#d1d7db]">
                 <button
                   onClick={() => {
                     setShowMenu(false);
@@ -206,14 +211,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         {/* Date separator pill */}
         <div className="flex justify-center mb-4 select-none">
           <span className="bg-white/90 dark:bg-[#182229]/90 text-[11px] text-[#54656f] dark:text-[#8696a0] px-3 py-1 rounded-md shadow-sm uppercase font-semibold">
-            Hari ini
+            Chat Pribadi
           </span>
         </div>
 
         {/* Security notice */}
         <div className="flex justify-center mb-4 select-none">
-          <span className="bg-[#ffeecd] dark:bg-[#182229] border border-[#f0c868]/40 dark:border-neutral-700 text-[11px] text-[#54656f] dark:text-[#ffd279] px-4 py-1.5 rounded-lg shadow-sm text-center max-w-md">
-            🔒 Pesan ke chat ini diamankan dengan enkripsi end-to-end. Tidak seorang pun di luar chat ini yang dapat membaca.
+          <span className="bg-[#ffeecd] dark:bg-[#182229] border border-[#f0c868]/40 dark:border-neutral-700 text-[11px] text-[#54656f] dark:text-[#ffd279] px-4 py-1.5 rounded-lg shadow-sm text-center max-w-md flex items-center justify-center space-x-1.5">
+            <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Pesan antara Anda dan @{contact.username} hanya dapat dibaca oleh Anda berdua.</span>
           </span>
         </div>
 
@@ -222,7 +228,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           <MessageBubble
             key={msg.id}
             message={msg}
-            isMe={msg.senderId === 'me'}
+            isMe={msg.senderId === currentUserId}
             onReply={(m) => setReplyingMessage(m)}
             onReaction={onReaction}
             onImageClick={(url) => setLightboxImage(url)}
@@ -232,12 +238,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Replying banner preview if active */}
+      {/* Replying banner preview */}
       {replyingMessage && (
         <div className="px-4 py-2 bg-[#f0f2f5] dark:bg-[#202c33] border-t border-[#e9edef] dark:border-[#222e35] flex items-center justify-between z-10">
           <div className="border-l-4 border-[#00a884] pl-2 text-xs">
             <span className="font-semibold text-[#00a884]">
-              Membalas {replyingMessage.senderId === 'me' ? 'Anda' : contact.name}
+              Membalas {replyingMessage.senderId === currentUserId ? 'Anda' : contact.name}
             </span>
             <p className="text-[#667781] dark:text-[#8696a0] truncate max-w-md">
               {replyingMessage.text || (replyingMessage.type === 'audio' ? 'Pesan suara' : 'Media')}
@@ -252,7 +258,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
       )}
 
-      {/* Input Bar or Recording Bar */}
+      {/* Input bar / Audio Recording Bar */}
       {isRecording ? (
         <AudioRecorder
           onCancel={() => setIsRecording(false)}
@@ -273,19 +279,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <Smile className="w-6 h-6" />
           </button>
 
-          {/* Attachment Paperclip button */}
+          {/* Attachment button */}
           <div className="relative">
             <button
               onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
               className="p-2 rounded-full text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] transition-colors"
-              title="Lampiran (Foto / Dokumen)"
+              title="Kirim Foto"
             >
               <Paperclip className="w-6 h-6 transform -rotate-45" />
             </button>
 
-            {/* Attachment popover */}
             {showAttachmentMenu && (
-              <div className="absolute bottom-12 left-0 bg-white dark:bg-[#233138] rounded-xl shadow-xl p-3 flex flex-col space-y-3 z-50 border border-[#e9edef] dark:border-[#2a3942]">
+              <div className="absolute bottom-12 left-0 bg-white dark:bg-[#233138] rounded-xl shadow-xl p-3 flex flex-col space-y-2 z-50 border border-[#e9edef] dark:border-[#2a3942]">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="flex items-center space-x-3 text-xs font-medium text-[#111b21] dark:text-[#d1d7db] hover:bg-black/5 dark:hover:bg-white/5 p-2 rounded-lg"
@@ -299,7 +304,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             )}
           </div>
 
-          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"
@@ -308,11 +312,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             onChange={handleImageFileChange}
           />
 
-          {/* Text input */}
+          {/* Input text */}
           <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-lg px-4 py-2.5">
             <input
               type="text"
-              placeholder="Ketik pesan"
+              placeholder="Ketik pesan pribadi..."
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -325,7 +329,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <button
               onClick={handleSendText}
               className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#008f70] text-white flex items-center justify-center transition-transform hover:scale-105 shadow-md flex-shrink-0"
-              title="Kirim"
+              title="Kirim Pesan"
             >
               <Send className="w-5 h-5 ml-0.5 fill-current" />
             </button>
@@ -341,7 +345,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
       )}
 
-      {/* Sticker / Emoji drawer */}
+      {/* Sticker drawer */}
       {showStickerPicker && (
         <StickerPicker
           onSelectEmoji={(emoji) => setInputText((prev) => prev + emoji)}
@@ -350,7 +354,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         />
       )}
 
-      {/* Photo Preview Modal before send */}
+      {/* Media preview modal */}
       {previewImage && (
         <MediaPreviewModal
           imageUrl={previewImage}
@@ -359,7 +363,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         />
       )}
 
-      {/* Lightbox when clicking photo in chat */}
+      {/* Lightbox image */}
       {lightboxImage && (
         <div
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-pointer"

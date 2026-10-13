@@ -2,18 +2,34 @@ export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read';
 
 export type MessageType = 'text' | 'image' | 'audio' | 'sticker' | 'document';
 
+export interface UserAccount {
+  id: string; // unique user id e.g. usr_123456
+  username?: string; // unique username e.g. 'reza99'
+  name: string; // display name e.g. 'Reza Maulana'
+  identifier?: string; // email or phone number e.g. 'reza@gmail.com' or '08123456789'
+  identifierType?: 'email' | 'phone';
+  phone?: string;
+  pin?: string; // simple password / security PIN
+  avatar: string;
+  about: string;
+  isOnline?: boolean;
+  lastSeen?: string;
+  createdAt?: string;
+}
+
 export interface Message {
   id: string;
-  chatId: string;
-  senderId: string; // 'me' or contactId
+  chatId: string; // [userA, userB].sort().join('__')
+  senderId: string;
+  recipientId?: string;
   senderName?: string;
   type: MessageType;
   text?: string;
-  mediaUrl?: string; // base64 or blob URL or image URL
+  mediaUrl?: string;
   fileName?: string;
   fileSize?: string;
-  audioDuration?: number; // seconds
-  timestamp: string; // ISO string or format
+  audioDuration?: number;
+  timestamp: string;
   status: MessageStatus;
   replyTo?: {
     id: string;
@@ -24,9 +40,11 @@ export interface Message {
   reaction?: string;
 }
 
-export interface Contact {
-  id: string;
+export interface ContactItem {
+  id: string; // contact's user id
+  username?: string;
   name: string;
+  identifier?: string;
   phone?: string;
   avatar: string;
   about?: string;
@@ -46,10 +64,5 @@ export interface Contact {
   };
 }
 
-export interface UserProfile {
-  id: string;
-  name: string;
-  about: string;
-  avatar: string;
-  phone: string;
-}
+export type Contact = ContactItem;
+export type UserProfile = UserAccount;

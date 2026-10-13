@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Contact, UserProfile } from '../types/chat';
+import { ContactItem, UserAccount } from '../types/chat';
 import {
   Search,
   MessageSquarePlus,
@@ -14,19 +14,20 @@ import {
   Sticker,
   Moon,
   Sun,
-  UserCheck,
   Filter,
+  LogOut,
+  User,
 } from 'lucide-react';
 
 interface ChatListProps {
-  contacts: Contact[];
+  contacts: ContactItem[];
   activeContactId: string | null;
   onSelectContact: (contactId: string) => void;
-  currentUser: UserProfile;
+  currentUser: UserAccount;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
   onOpenNewChat: () => void;
-  onOpenSettings: () => void;
+  onLogout: () => void;
 }
 
 export const ChatList: React.FC<ChatListProps> = ({
@@ -37,7 +38,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   theme,
   onToggleTheme,
   onOpenNewChat,
-  onOpenSettings,
+  onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUnread, setFilterUnread] = useState(false);
@@ -46,6 +47,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   const filteredContacts = contacts.filter((c) => {
     const matchesSearch =
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.lastMessage?.text || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter = filterUnread ? c.unreadCount > 0 : true;
     return matchesSearch && matchesFilter;
@@ -55,24 +57,25 @@ export const ChatList: React.FC<ChatListProps> = ({
     <div className="w-full md:w-[400px] lg:w-[440px] flex-shrink-0 flex flex-col h-full bg-white dark:bg-[#111b21] border-r border-[#e9edef] dark:border-[#222e35]">
       {/* Top Header */}
       <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between border-b border-[#e9edef] dark:border-[#222e35] select-none">
-        {/* User profile avatar */}
-        <div
-          onClick={onOpenSettings}
-          className="flex items-center space-x-3 cursor-pointer group"
-          title="Pengaturan Profil"
-        >
+        {/* User profile avatar & current account info */}
+        <div className="flex items-center space-x-3 cursor-pointer group min-w-0 pr-2">
           <img
             src={currentUser.avatar}
             alt={currentUser.name}
-            className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[#00a884] transition-all"
+            className="w-10 h-10 rounded-full object-cover ring-2 ring-[#00a884]/40 flex-shrink-0"
           />
-          <span className="font-semibold text-sm text-[#111b21] dark:text-[#e9edef] hidden sm:inline max-w-[120px] truncate">
-            {currentUser.name}
-          </span>
+          <div className="flex flex-col min-w-0">
+            <span className="font-semibold text-sm text-[#111b21] dark:text-[#e9edef] truncate">
+              {currentUser.name}
+            </span>
+            <span className="text-[11px] text-[#00a884] font-medium truncate">
+              @{currentUser.username}
+            </span>
+          </div>
         </div>
 
         {/* Header Action Icons */}
-        <div className="flex items-center space-x-3 text-[#54656f] dark:text-[#aebac1] relative">
+        <div className="flex items-center space-x-2 text-[#54656f] dark:text-[#aebac1] relative flex-shrink-0">
           <button
             onClick={onToggleTheme}
             className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
@@ -83,8 +86,8 @@ export const ChatList: React.FC<ChatListProps> = ({
 
           <button
             onClick={onOpenNewChat}
-            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-            title="Chat Baru"
+            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-[#00a884]"
+            title="Mulai Chat Baru"
           >
             <MessageSquarePlus className="w-5 h-5" />
           </button>
@@ -93,13 +96,17 @@ export const ChatList: React.FC<ChatListProps> = ({
             <button
               onClick={() => setShowMenu(!showMenu)}
               className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-              title="Menu Opsi"
+              title="Menu Akun"
             >
               <MoreVertical className="w-5 h-5" />
             </button>
 
             {showMenu && (
-              <div className="absolute right-0 top-11 w-48 bg-white dark:bg-[#233138] rounded-md shadow-xl py-2 z-50 border border-[#e9edef] dark:border-[#2a3942] text-sm text-[#111b21] dark:text-[#d1d7db]">
+              <div className="absolute right-0 top-11 w-48 bg-white dark:bg-[#233138] rounded-xl shadow-xl py-2 z-50 border border-[#e9edef] dark:border-[#2a3942] text-sm text-[#111b21] dark:text-[#d1d7db]">
+                <div className="px-4 py-2 border-b border-[#e9edef] dark:border-[#2a3942]">
+                  <p className="font-semibold text-xs text-[#00a884]">@{currentUser.username}</p>
+                  <p className="text-[11px] text-[#8696a0] truncate">{currentUser.identifier}</p>
+                </div>
                 <button
                   onClick={() => {
                     setShowMenu(false);
@@ -107,16 +114,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                   }}
                   className="w-full text-left px-4 py-2 hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  Grup baru
-                </button>
-                <button
-                  onClick={() => {
-                    setShowMenu(false);
-                    onOpenSettings();
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  Pengaturan
+                  Cari Kontak Pengguna
                 </button>
                 <button
                   onClick={() => {
@@ -127,19 +125,29 @@ export const ChatList: React.FC<ChatListProps> = ({
                 >
                   {theme === 'dark' ? 'Tema Terang' : 'Tema Gelap'}
                 </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onLogout();
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-red-500/10 text-red-500 flex items-center space-x-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Keluar Akun</span>
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Search and Unread Filter Bar */}
+      {/* Search and Filter Bar */}
       <div className="px-3 py-2 bg-white dark:bg-[#111b21] flex items-center space-x-2 border-b border-[#e9edef] dark:border-[#222e35]">
         <div className="flex-1 flex items-center bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg px-3 py-1.5 text-xs text-[#111b21] dark:text-[#e9edef]">
           <Search className="w-4 h-4 text-[#54656f] dark:text-[#8696a0] mr-2 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Cari atau mulai chat baru"
+            placeholder="Cari chat atau @username..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-transparent outline-none placeholder-[#54656f] dark:placeholder-[#8696a0]"
@@ -159,23 +167,40 @@ export const ChatList: React.FC<ChatListProps> = ({
         </button>
       </div>
 
-      {/* WhatsApp Feature Notification Strip */}
+      {/* Security Status Strip */}
       <div className="bg-[#f0f2f5]/60 dark:bg-[#182229] px-4 py-2 text-[12px] text-[#54656f] dark:text-[#8696a0] border-b border-[#e9edef] dark:border-[#222e35] flex items-center justify-between">
-        <span>🔒 Enkripsi end-to-end aktif</span>
-        <span className="text-[10px] text-[#00a884] font-medium">WhatsApp Web Clone</span>
+        <span>🔒 Chat pribadi terenkripsi 1-on-1</span>
+        <button
+          onClick={onOpenNewChat}
+          className="text-[11px] text-[#00a884] font-medium hover:underline"
+        >
+          + Tambah Chat
+        </button>
       </div>
 
-      {/* Chat List Scrollable Items */}
+      {/* Contacts List */}
       <div className="flex-1 overflow-y-auto divide-y divide-[#e9edef]/60 dark:divide-[#222e35]/60">
         {filteredContacts.length === 0 ? (
-          <div className="p-8 text-center text-sm text-[#54656f] dark:text-[#8696a0]">
-            Tidak ada chat yang cocok.
+          <div className="p-8 text-center flex flex-col items-center">
+            <User className="w-10 h-10 text-[#8696a0] mb-2 stroke-1" />
+            <p className="text-sm font-medium text-[#111b21] dark:text-[#e9edef]">
+              Belum ada percakapan pribadi
+            </p>
+            <p className="text-xs text-[#8696a0] max-w-xs mt-1 mb-4">
+              Klik tombol di bawah untuk mencari @username teman dan mulai chat pribadi.
+            </p>
+            <button
+              onClick={onOpenNewChat}
+              className="px-4 py-2 rounded-lg bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-semibold shadow"
+            >
+              Mulai Chat Pribadi
+            </button>
           </div>
         ) : (
           filteredContacts.map((contact) => {
             const isActive = contact.id === activeContactId;
             const lastMsg = contact.lastMessage;
-            const isMeLast = lastMsg?.senderId === 'me';
+            const isMeLast = lastMsg?.senderId === currentUser.id;
 
             return (
               <div
@@ -201,10 +226,15 @@ export const ChatList: React.FC<ChatListProps> = ({
 
                 {/* Contact Info & Last Message */}
                 <div className="flex-1 min-w-0 pr-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-[15px] text-[#111b21] dark:text-[#e9edef] truncate">
-                      {contact.name}
-                    </span>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <div className="flex items-center space-x-1 min-w-0">
+                      <span className="font-semibold text-[15px] text-[#111b21] dark:text-[#e9edef] truncate">
+                        {contact.name}
+                      </span>
+                      <span className="text-xs text-[#00a884] font-medium flex-shrink-0">
+                        @{contact.username}
+                      </span>
+                    </div>
                     <span
                       className={`text-[12px] whitespace-nowrap ml-2 ${
                         contact.unreadCount > 0
@@ -262,17 +292,14 @@ export const ChatList: React.FC<ChatListProps> = ({
                           )}
 
                           {!lastMsg && (
-                            <span className="italic truncate">{contact.about || 'Mulai obrolan'}</span>
+                            <span className="italic truncate">{contact.about || 'Mulai chat pribadi'}</span>
                           )}
                         </>
                       )}
                     </div>
 
-                    {/* Right indicators: Pinned & Unread badge */}
+                    {/* Unread badge & pinned */}
                     <div className="flex items-center space-x-1.5 flex-shrink-0">
-                      {contact.pinned && (
-                        <Pin className="w-3.5 h-3.5 text-[#667781] dark:text-[#8696a0] transform rotate-45" />
-                      )}
                       {contact.unreadCount > 0 && (
                         <span className="px-1.5 py-0.5 min-w-[20px] text-center rounded-full bg-[#00a884] text-white text-[11px] font-bold">
                           {contact.unreadCount}

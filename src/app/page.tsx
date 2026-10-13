@@ -1,55 +1,51 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Contact, Message, MessageType, UserProfile } from '../types/chat';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { UserAccount, ContactItem, Message, MessageType } from '../types/chat';
 import { ChatList } from '../components/ChatList';
 import { ChatWindow } from '../components/ChatWindow';
 import { EmptyChat } from '../components/EmptyChat';
-import { SettingsModal } from '../components/SettingsModal';
-import { NewChatModal } from '../components/NewChatModal';
-import {
-  getStoredContacts,
-  saveStoredContacts,
-  getStoredMessages,
-  saveStoredMessages,
-  getStoredUser,
-  saveStoredUser,
-  getStoredTheme,
-  saveStoredTheme,
-} from '../utils/storage';
-import { INITIAL_CONTACTS, INITIAL_MESSAGES, CURRENT_USER } from '../utils/mockData';
-import { generateBotReply } from '../utils/botEngine';
+import { AuthModal } from '../components/AuthModal';
+import { NewPrivateChatModal } from '../components/NewPrivateChatModal';
+import { getStoredTheme, saveStoredTheme } from '../utils/storage';
+
+const SESSION_USER_KEY = 'wa_clone_active_user_v2';
+const LOCAL_CONTACTS_KEY = 'wa_clone_user_contacts_v2_';
 
 export default function HomePage() {
   const [mounted, setMounted] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [currentUser, setCurrentUser] = useState<UserProfile>(CURRENT_USER);
-  const [contacts, setContacts] = useState<Contact[]>(INITIAL_CONTACTS);
-  const [messages, setMessages] = useState<Record<string, Message[]>>(INITIAL_MESSAGES);
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   // Modals
-  const [showSettings, setShowSettings] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
 
-  // Hydrate from localStorage on client
+  // Cross-tab broadcast channel for instant multi-tab sync
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize theme & session
   useEffect(() => {
     const savedTheme = getStoredTheme();
-    const savedUser = getStoredUser();
-    const savedContacts = getStoredContacts();
-    const savedMessages = getStoredMessages();
-
     setTheme(savedTheme);
-    setCurrentUser(savedUser);
-    setContacts(savedContacts);
-    setMessages(savedMessages);
-    if (savedContacts.length > 0) {
-      setActiveContactId(savedContacts[0].id);
+
+    try {
+      const rawUser = localStorage.getItem(SESSION_USER_KEY);
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        setCurrentUser(u);
+      }
+    } catch {
+      // ignore
     }
+
     setMounted(true);
   }, []);
 
-  // Update HTML dark class
+  // Update theme class on root
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -59,33 +55,123 @@ export default function HomePage() {
     saveStoredTheme(theme);
   }, [theme]);
 
-  // Persist contacts whenever they change
+  // Load contacts for current user from localStorage
   useEffect(() => {
-    if (mounted) {
-      saveStoredContacts(contacts);
+    if (!currentUser) {
+      setContacts([]);
+      setActiveContactId(null);
+      return;
     }
-  }, [contacts, mounted]);
 
-  // Persist messages whenever they change
+    const key = LOCAL_CONTACTS_KEY + currentUser.id;
+    let saved: ContactItem[] = [];
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) saved = JSON.parse(raw);
+    } catch {}
+
+    // Always ensure the default Bot Assistant is available to chat with
+    if (!saved.some((c) => c.id === 'usr_bot') && currentUser.id !== 'usr_bot') {
+      saved.unshift({
+        id: 'usr_bot',
+        username: 'bot',
+        name: 'WhatsApp Bot Assistant 🤖',
+        identifier: 'bot@whatsapp.id',
+        avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80',
+        about: 'Asisten AI otomatis',
+        isOnline: true,
+        unreadCount: 0,
+      });
+    }
+
+    setContacts(saved);
+    if (saved.length > 0 && !activeContactId) {
+      setActiveContactId(saved[0].id);
+    }
+  }, [currentUser]);
+
+  // Save contacts for current user whenever updated
   useEffect(() => {
-    if (mounted) {
-      saveStoredMessages(messages);
+    if (currentUser && contacts.length > 0) {
+      const key = LOCAL_CONTACTS_KEY + currentUser.id;
+      localStorage.setItem(key, JSON.stringify(contacts));
     }
-  }, [messages, mounted]);
+  }, [contacts, currentUser]);
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
+  // Fetch messages between currentUser and activeContact
+  const fetchActiveMessages = useCallback(async () => {
+    if (!currentUser || !activeContactId) return;
+    try {
+      const res = await fetch(
+        `/api/messages?userA=${encodeURIComponent(currentUser.id)}&userB=${encodeURIComponent(activeContactId)}`
+      );
+      const data = await res.json();
+      if (data.success && Array.isArray(data.messages)) {
+        setMessages(data.messages);
+      }
+    } catch (err) {
+      console.warn('Error fetching messages:', err);
+    }
+  }, [currentUser, activeContactId]);
 
-  const handleSelectContact = (id: string) => {
-    setActiveContactId(id);
-    // Mark messages as read
+  // Polling for incoming messages & sync every 1.5s
+  useEffect(() => {
+    if (!currentUser) return;
+
+    fetchActiveMessages();
+
+    // Setup BroadcastChannel for zero-latency local multi-tab sync
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const bc = new BroadcastChannel('wa_private_chat_sync');
+      bc.onmessage = (event) => {
+        const payload = event.data;
+        if (
+          payload &&
+          (payload.recipientId === currentUser.id || payload.senderId === currentUser.id)
+        ) {
+          fetchActiveMessages();
+          updateContactLastMessage(payload);
+        }
+      };
+      channelRef.current = bc;
+    }
+
+    // Polling interval
+    pollingTimerRef.current = setInterval(() => {
+      fetchActiveMessages();
+    }, 1500);
+
+    return () => {
+      if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+      channelRef.current?.close();
+    };
+  }, [currentUser, activeContactId, fetchActiveMessages]);
+
+  const updateContactLastMessage = (msg: Message) => {
+    const otherUserId = msg.senderId === currentUser?.id ? msg.recipientId : msg.senderId;
     setContacts((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+      prev.map((c) =>
+        c.id === otherUserId
+          ? {
+              ...c,
+              lastMessage: {
+                text: msg.text || (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
+                timestamp: msg.timestamp,
+                type: msg.type,
+                senderId: msg.senderId,
+                status: msg.status,
+              },
+              unreadCount:
+                msg.senderId !== currentUser?.id && otherUserId !== activeContactId
+                  ? c.unreadCount + 1
+                  : c.unreadCount,
+            }
+          : c
+      )
     );
   };
 
-  const handleSendMessage = ({
+  const handleSendMessage = async ({
     type,
     text,
     mediaUrl,
@@ -98,197 +184,84 @@ export default function HomePage() {
     audioDuration?: number;
     replyTo?: Message;
   }) => {
-    if (!activeContactId) return;
+    if (!currentUser || !activeContactId) return;
 
-    const contact = contacts.find((c) => c.id === activeContactId);
-    if (!contact) return;
-
-    const now = new Date();
-    const timeString = `${now.getHours().toString().padStart(2, '0')}:${now
-      .getMinutes()
-      .toString()
-      .padStart(2, '0')}`;
-
-    const newMsg: Message = {
-      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      chatId: activeContactId,
-      senderId: 'me',
-      type,
-      text,
-      mediaUrl,
-      audioDuration,
-      timestamp: timeString,
-      status: 'sent',
-      replyTo: replyTo
-        ? {
-            id: replyTo.id,
-            senderName: replyTo.senderId === 'me' ? 'Anda' : contact.name,
-            text: replyTo.text || replyTo.type,
-            type: replyTo.type,
-          }
-        : undefined,
-    };
-
-    // Append to messages
-    const updatedChatMessages = [...(messages[activeContactId] || []), newMsg];
-    setMessages((prev) => ({
-      ...prev,
-      [activeContactId]: updatedChatMessages,
-    }));
-
-    // Update contact last message
-    setContacts((prev) =>
-      prev.map((c) =>
-        c.id === activeContactId
-          ? {
-              ...c,
-              lastMessage: {
-                text: text || (type === 'audio' ? 'Pesan Suara' : type === 'image' ? 'Foto' : 'Stiker'),
-                timestamp: timeString,
-                type,
-                senderId: 'me',
-                status: 'sent',
-              },
-            }
-          : c
-      )
-    );
-
-    // Simulate delivery ticks after 300ms
-    setTimeout(() => {
-      setMessages((prev) => {
-        const currentList = prev[activeContactId] || [];
-        return {
-          ...prev,
-          [activeContactId]: currentList.map((m) =>
-            m.id === newMsg.id ? { ...m, status: 'delivered' } : m
-          ),
-        };
-      });
-      setContacts((prev) =>
-        prev.map((c) =>
-          c.id === activeContactId && c.lastMessage
-            ? { ...c, lastMessage: { ...c.lastMessage, status: 'delivered' } }
-            : c
-        )
-      );
-    }, 400);
-
-    // Trigger Bot Auto-reply simulation
-    const replyData = generateBotReply(contact, newMsg);
-
-    // Show typing status after 600ms
-    setTimeout(() => {
-      setContacts((prev) =>
-        prev.map((c) => (c.id === activeContactId ? { ...c, isTyping: true } : c))
-      );
-    }, 600);
-
-    // Deliver response
-    setTimeout(() => {
-      const replyTime = new Date();
-      const replyTimeString = `${replyTime.getHours().toString().padStart(2, '0')}:${replyTime
-        .getMinutes()
-        .toString()
-        .padStart(2, '0')}`;
-
-      const incomingMsg: Message = {
-        id: `msg_bot_${Date.now()}`,
-        chatId: activeContactId,
-        senderId: contact.id,
-        senderName: contact.name,
-        type: replyData.type,
-        text: replyData.text,
-        mediaUrl: replyData.mediaUrl,
-        timestamp: replyTimeString,
-        status: 'read',
-      };
-
-      setMessages((prev) => {
-        const chatList = prev[activeContactId] || [];
-        // Mark all user outgoing messages as read (blue ticks)
-        const markedRead = chatList.map((m) =>
-          m.senderId === 'me' ? { ...m, status: 'read' as const } : m
-        );
-        return {
-          ...prev,
-          [activeContactId]: [...markedRead, incomingMsg],
-        };
-      });
-
-      setContacts((prev) =>
-        prev.map((c) =>
-          c.id === activeContactId
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senderId: currentUser.id,
+          recipientId: activeContactId,
+          type,
+          text,
+          mediaUrl,
+          audioDuration,
+          replyTo: replyTo
             ? {
-                ...c,
-                isTyping: false,
-                lastMessage: {
-                  text: replyData.text || (replyData.type === 'sticker' ? 'Stiker' : 'Media'),
-                  timestamp: replyTimeString,
-                  type: replyData.type,
-                  senderId: contact.id,
-                  status: 'read',
-                },
+                id: replyTo.id,
+                senderName: replyTo.senderId === currentUser.id ? 'Anda' : replyTo.senderName || '',
+                text: replyTo.text || replyTo.type,
+                type: replyTo.type,
               }
-            : c
-        )
-      );
-    }, 600 + replyData.delayMs);
+            : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.message) {
+        setMessages((prev) => [...prev, data.message]);
+        updateContactLastMessage(data.message);
+
+        // Broadcast to other open tabs/windows
+        channelRef.current?.postMessage(data.message);
+      }
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   };
 
   const handleReaction = (messageId: string, emoji: string) => {
-    if (!activeContactId) return;
-    setMessages((prev) => {
-      const list = prev[activeContactId] || [];
-      return {
-        ...prev,
-        [activeContactId]: list.map((m) =>
-          m.id === messageId ? { ...m, reaction: m.reaction === emoji ? undefined : emoji } : m
-        ),
-      };
-    });
-  };
-
-  const handleClearChat = () => {
-    if (!activeContactId) return;
-    setMessages((prev) => ({
-      ...prev,
-      [activeContactId]: [],
-    }));
-    setContacts((prev) =>
-      prev.map((c) =>
-        c.id === activeContactId
-          ? {
-              ...c,
-              lastMessage: undefined,
-              unreadCount: 0,
-            }
-          : c
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, reaction: m.reaction === emoji ? undefined : emoji } : m
       )
     );
   };
 
-  const handleAddContact = (newContact: Contact) => {
-    setContacts((prev) => [newContact, ...prev]);
-    setMessages((prev) => ({
-      ...prev,
-      [newContact.id]: [],
-    }));
-    setActiveContactId(newContact.id);
+  const handleClearChat = () => {
+    setMessages([]);
   };
 
-  const handleUpdateUser = (updatedUser: UserProfile) => {
-    setCurrentUser(updatedUser);
-    saveStoredUser(updatedUser);
+  const handleLoginSuccess = (user: UserAccount) => {
+    setCurrentUser(user);
+    localStorage.setItem(SESSION_USER_KEY, JSON.stringify(user));
   };
 
-  const handleResetData = () => {
-    localStorage.clear();
-    setContacts(INITIAL_CONTACTS);
-    setMessages(INITIAL_MESSAGES);
-    setCurrentUser(CURRENT_USER);
-    setActiveContactId(INITIAL_CONTACTS[0].id);
-    setShowSettings(false);
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem(SESSION_USER_KEY);
+    setActiveContactId(null);
+    setMessages([]);
+  };
+
+  const handleStartChatWithUser = (targetUser: UserAccount) => {
+    // Check if already in contacts
+    const existing = contacts.find((c) => c.id === targetUser.id);
+    if (!existing) {
+      const newContact: ContactItem = {
+        id: targetUser.id,
+        username: targetUser.username,
+        name: targetUser.name,
+        identifier: targetUser.identifier,
+        avatar: targetUser.avatar,
+        about: targetUser.about,
+        isOnline: targetUser.isOnline ?? true,
+        unreadCount: 0,
+      };
+      setContacts((prev) => [newContact, ...prev]);
+    }
+    setActiveContactId(targetUser.id);
   };
 
   if (!mounted) {
@@ -302,12 +275,16 @@ export default function HomePage() {
     );
   }
 
+  // If user is not authenticated, show Auth modal
+  if (!currentUser) {
+    return <AuthModal onSuccess={handleLoginSuccess} />;
+  }
+
   const activeContact = contacts.find((c) => c.id === activeContactId);
-  const activeMessages = activeContactId ? messages[activeContactId] || [] : [];
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col justify-center items-center bg-[#d1d7db] dark:bg-[#0c1317] relative">
-      {/* WhatsApp Green Top Banner on large screens */}
+      {/* Top Banner WhatsApp Green on large screens */}
       <div className="hidden md:block w-full h-32 bg-[#00a884] dark:bg-[#00a884] absolute top-0 left-0 z-0" />
 
       {/* Main WhatsApp Window Container */}
@@ -321,16 +298,21 @@ export default function HomePage() {
           <ChatList
             contacts={contacts}
             activeContactId={activeContactId}
-            onSelectContact={handleSelectContact}
+            onSelectContact={(id) => {
+              setActiveContactId(id);
+              setContacts((prev) =>
+                prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+              );
+            }}
             currentUser={currentUser}
             theme={theme}
-            onToggleTheme={toggleTheme}
+            onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             onOpenNewChat={() => setShowNewChat(true)}
-            onOpenSettings={() => setShowSettings(true)}
+            onLogout={handleLogout}
           />
         </div>
 
-        {/* Right Side: Active Chat Window or Empty placeholder */}
+        {/* Right Side: Active Chat Window or Empty */}
         <div
           className={`${
             activeContactId ? 'flex' : 'hidden md:flex'
@@ -339,7 +321,8 @@ export default function HomePage() {
           {activeContact ? (
             <ChatWindow
               contact={activeContact}
-              messages={activeMessages}
+              currentUserId={currentUser.id}
+              messages={messages}
               onSendMessage={handleSendMessage}
               onReaction={handleReaction}
               onClearChat={handleClearChat}
@@ -352,22 +335,11 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Settings Modal */}
-      {showSettings && (
-        <SettingsModal
-          currentUser={currentUser}
-          theme={theme}
-          onUpdateUser={handleUpdateUser}
-          onToggleTheme={toggleTheme}
-          onResetData={handleResetData}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-
-      {/* New Chat Modal */}
+      {/* New Private Chat Search Modal */}
       {showNewChat && (
-        <NewChatModal
-          onAddContact={handleAddContact}
+        <NewPrivateChatModal
+          currentUserId={currentUser.id}
+          onSelectUser={handleStartChatWithUser}
           onClose={() => setShowNewChat(false)}
         />
       )}
