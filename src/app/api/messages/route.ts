@@ -16,12 +16,12 @@ export async function GET(req: Request) {
     const userId = searchParams.get('userId');
 
     if (userA && userB) {
-      const msgs = getMessagesBetween(userA, userB);
+      const msgs = await getMessagesBetween(userA, userB);
       return NextResponse.json({ success: true, messages: msgs });
     }
 
     if (userId) {
-      const msgs = getMessagesForUser(userId);
+      const msgs = await getMessagesForUser(userId);
       return NextResponse.json({ success: true, messages: msgs });
     }
 
@@ -49,8 +49,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const sender = findUserById(senderId);
-    const recipient = findUserById(recipientId);
+    const sender = await findUserById(senderId);
 
     const now = new Date();
     const timeString = `${now.getHours().toString().padStart(2, '0')}:${now
@@ -73,40 +72,7 @@ export async function POST(req: Request) {
       replyTo,
     };
 
-    saveMessage(newMsg);
-
-    // If recipient is the Bot, generate auto response in background
-    if (recipientId === 'usr_bot') {
-      setTimeout(() => {
-        const botReplyText =
-          type === 'audio'
-            ? 'Saya sudah mendengarkan pesan suara kamu! Suaranya jernih 👍'
-            : type === 'image'
-            ? 'Foto berhasil diterima! Bagus sekali 📸'
-            : type === 'sticker'
-            ? 'Stiker yang keren! 🔥'
-            : (text || '').toLowerCase().includes('halo')
-            ? 'Halo! Ada yang bisa saya bantu di WhatsApp Web Clone ini?'
-            : `Pesanmu "${text || ''}" sudah tercatat di sistem chat pribadi ini!`;
-
-        const botMsg: Message = {
-          id: `msg_bot_${Date.now()}`,
-          chatId: getChatRoomId(senderId, recipientId),
-          senderId: 'usr_bot',
-          recipientId: senderId,
-          senderName: 'WhatsApp Bot Assistant 🤖',
-          type: type === 'sticker' ? 'sticker' : 'text',
-          text: type === 'sticker' ? undefined : botReplyText,
-          mediaUrl: type === 'sticker' ? 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f525/512.webp' : undefined,
-          timestamp: `${new Date().getHours().toString().padStart(2, '0')}:${new Date()
-            .getMinutes()
-            .toString()
-            .padStart(2, '0')}`,
-          status: 'read',
-        };
-        saveMessage(botMsg);
-      }, 1000);
-    }
+    await saveMessage(newMsg);
 
     return NextResponse.json({ success: true, message: newMsg });
   } catch (err: any) {

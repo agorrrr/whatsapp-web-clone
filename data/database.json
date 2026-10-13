@@ -48,6 +48,18 @@
       "about": "Test user",
       "isOnline": true,
       "createdAt": "2026-10-13T16:37:27.274Z"
+    },
+    {
+      "id": "usr_1791909707385_ugtc",
+      "username": "ezakasep",
+      "name": "Reza Frahmawan",
+      "identifier": "namakuezakasep@gmail.com",
+      "identifierType": "email",
+      "pin": "ezakasep",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "about": "Ada di WhatsApp Web Clone",
+      "isOnline": true,
+      "createdAt": "2026-10-13T16:41:47.385Z"
     }
   ],
   "messages": [

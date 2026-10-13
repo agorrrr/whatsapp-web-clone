@@ -7,10 +7,11 @@ import { ChatWindow } from '../components/ChatWindow';
 import { EmptyChat } from '../components/EmptyChat';
 import { AuthModal } from '../components/AuthModal';
 import { NewPrivateChatModal } from '../components/NewPrivateChatModal';
+import { EditProfileModal } from '../components/EditProfileModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
-const SESSION_USER_KEY = 'wa_clone_active_user_v2';
-const LOCAL_CONTACTS_KEY = 'wa_clone_user_contacts_v2_';
+const SESSION_USER_KEY = 'wa_clone_active_user_v3';
+const LOCAL_CONTACTS_KEY = 'wa_clone_user_contacts_v3_';
 
 export default function HomePage() {
   const [mounted, setMounted] = useState(false);
@@ -22,8 +23,8 @@ export default function HomePage() {
 
   // Modals
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
-  // Cross-tab broadcast channel for instant multi-tab sync
   const channelRef = useRef<BroadcastChannel | null>(null);
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -38,14 +39,12 @@ export default function HomePage() {
         const u = JSON.parse(rawUser);
         setCurrentUser(u);
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     setMounted(true);
   }, []);
 
-  // Update theme class on root
+  // Update theme class on document element
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -70,24 +69,7 @@ export default function HomePage() {
       if (raw) saved = JSON.parse(raw);
     } catch {}
 
-    // Always ensure the default Bot Assistant is available to chat with
-    if (!saved.some((c) => c.id === 'usr_bot') && currentUser.id !== 'usr_bot') {
-      saved.unshift({
-        id: 'usr_bot',
-        username: 'bot',
-        name: 'WhatsApp Bot Assistant 🤖',
-        identifier: 'bot@whatsapp.id',
-        avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80',
-        about: 'Asisten AI otomatis',
-        isOnline: true,
-        unreadCount: 0,
-      });
-    }
-
     setContacts(saved);
-    if (saved.length > 0 && !activeContactId) {
-      setActiveContactId(saved[0].id);
-    }
   }, [currentUser]);
 
   // Save contacts for current user whenever updated
@@ -114,13 +96,13 @@ export default function HomePage() {
     }
   }, [currentUser, activeContactId]);
 
-  // Polling for incoming messages & sync every 1.5s
+  // Poll for messages every 2 seconds & sync across tabs
   useEffect(() => {
     if (!currentUser) return;
 
     fetchActiveMessages();
 
-    // Setup BroadcastChannel for zero-latency local multi-tab sync
+    // Broadcast channel for multi-window / multi-tab local sync
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const bc = new BroadcastChannel('wa_private_chat_sync');
       bc.onmessage = (event) => {
@@ -136,10 +118,9 @@ export default function HomePage() {
       channelRef.current = bc;
     }
 
-    // Polling interval
     pollingTimerRef.current = setInterval(() => {
       fetchActiveMessages();
-    }, 1500);
+    }, 2000);
 
     return () => {
       if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
@@ -149,8 +130,32 @@ export default function HomePage() {
 
   const updateContactLastMessage = (msg: Message) => {
     const otherUserId = msg.senderId === currentUser?.id ? msg.recipientId : msg.senderId;
-    setContacts((prev) =>
-      prev.map((c) =>
+    if (!otherUserId) return;
+
+    setContacts((prev) => {
+      const exists = prev.some((c) => c.id === otherUserId);
+      if (!exists && msg.senderId && msg.senderName) {
+        // Automatically add contact if new message received from a user
+        const newContact: ContactItem = {
+          id: otherUserId,
+          name: msg.senderName,
+          avatar:
+            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+          about: 'Kontak WhatsApp',
+          isOnline: true,
+          unreadCount: otherUserId !== activeContactId ? 1 : 0,
+          lastMessage: {
+            text: msg.text || (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
+            timestamp: msg.timestamp,
+            type: msg.type,
+            senderId: msg.senderId,
+            status: msg.status,
+          },
+        };
+        return [newContact, ...prev];
+      }
+
+      return prev.map((c) =>
         c.id === otherUserId
           ? {
               ...c,
@@ -167,8 +172,8 @@ export default function HomePage() {
                   : c.unreadCount,
             }
           : c
-      )
-    );
+      );
+    });
   };
 
   const handleSendMessage = async ({
@@ -212,8 +217,6 @@ export default function HomePage() {
       if (data.success && data.message) {
         setMessages((prev) => [...prev, data.message]);
         updateContactLastMessage(data.message);
-
-        // Broadcast to other open tabs/windows
         channelRef.current?.postMessage(data.message);
       }
     } catch (err) {
@@ -243,10 +246,15 @@ export default function HomePage() {
     localStorage.removeItem(SESSION_USER_KEY);
     setActiveContactId(null);
     setMessages([]);
+    setContacts([]);
+  };
+
+  const handleUpdateProfileSuccess = (updated: UserAccount) => {
+    setCurrentUser(updated);
+    localStorage.setItem(SESSION_USER_KEY, JSON.stringify(updated));
   };
 
   const handleStartChatWithUser = (targetUser: UserAccount) => {
-    // Check if already in contacts
     const existing = contacts.find((c) => c.id === targetUser.id);
     if (!existing) {
       const newContact: ContactItem = {
@@ -266,16 +274,16 @@ export default function HomePage() {
 
   if (!mounted) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#111b21] text-white">
+      <div className="h-[100dvh] w-screen flex items-center justify-center bg-[#111b21] text-white">
         <div className="flex flex-col items-center space-y-4">
-          <div className="w-12 h-12 border-4 border-[#00a884] border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm font-medium tracking-wide">WhatsApp Web...</span>
+          <div className="w-10 h-10 border-3 border-[#00a884] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-medium tracking-wide">WhatsApp Web...</span>
         </div>
       </div>
     );
   }
 
-  // If user is not authenticated, show Auth modal
+  // If not logged in, show Auth modal
   if (!currentUser) {
     return <AuthModal onSuccess={handleLoginSuccess} />;
   }
@@ -283,8 +291,8 @@ export default function HomePage() {
   const activeContact = contacts.find((c) => c.id === activeContactId);
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col justify-center items-center bg-[#d1d7db] dark:bg-[#0c1317] relative">
-      {/* Top Banner WhatsApp Green on large screens */}
+    <div className="h-[100dvh] w-screen overflow-hidden flex flex-col justify-center items-center bg-[#d1d7db] dark:bg-[#0c1317] relative select-none">
+      {/* WhatsApp Green Top Banner on large screens */}
       <div className="hidden md:block w-full h-32 bg-[#00a884] dark:bg-[#00a884] absolute top-0 left-0 z-0" />
 
       {/* Main WhatsApp Window Container */}
@@ -293,7 +301,7 @@ export default function HomePage() {
         <div
           className={`${
             activeContactId ? 'hidden md:flex' : 'flex'
-          } w-full md:w-[400px] lg:w-[440px] h-full flex-col`}
+          } w-full md:w-[400px] lg:w-[440px] h-full flex-col flex-shrink-0`}
         >
           <ChatList
             contacts={contacts}
@@ -308,6 +316,7 @@ export default function HomePage() {
             theme={theme}
             onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             onOpenNewChat={() => setShowNewChat(true)}
+            onOpenEditProfile={() => setShowEditProfile(true)}
             onLogout={handleLogout}
           />
         </div>
@@ -316,7 +325,7 @@ export default function HomePage() {
         <div
           className={`${
             activeContactId ? 'flex' : 'hidden md:flex'
-          } flex-1 h-full flex-col`}
+          } flex-1 h-full flex-col min-w-0`}
         >
           {activeContact ? (
             <ChatWindow
@@ -341,6 +350,15 @@ export default function HomePage() {
           currentUserId={currentUser.id}
           onSelectUser={handleStartChatWithUser}
           onClose={() => setShowNewChat(false)}
+        />
+      )}
+
+      {/* Edit Profile Modal */}
+      {showEditProfile && (
+        <EditProfileModal
+          currentUser={currentUser}
+          onUpdateSuccess={handleUpdateProfileSuccess}
+          onClose={() => setShowEditProfile(false)}
         />
       )}
     </div>

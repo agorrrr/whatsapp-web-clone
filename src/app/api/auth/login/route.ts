@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = findUserByIdentifier(identifier);
+    const user = await findUserByIdentifier(identifier);
     if (!user) {
       return NextResponse.json(
         { success: false, message: 'Akun tidak ditemukan. Silakan daftar terlebih dahulu!' },

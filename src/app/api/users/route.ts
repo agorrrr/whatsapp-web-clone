@@ -7,15 +7,16 @@ export async function GET(req: Request) {
     const query = (searchParams.get('q') || '').toLowerCase().trim();
     const excludeId = searchParams.get('exclude') || '';
 
-    const allUsers = getAllUsers();
+    const allUsers = await getAllUsers();
     const filtered = allUsers
       .filter((u) => u.id !== excludeId)
       .filter((u) => {
         if (!query) return true;
         return (
-          u.name.toLowerCase().includes(query) ||
-          u.username.toLowerCase().includes(query) ||
-          u.identifier.toLowerCase().includes(query)
+          (u.name || '').toLowerCase().includes(query) ||
+          (u.username || '').toLowerCase().includes(query) ||
+          (u.identifier || '').toLowerCase().includes(query) ||
+          (u.phone || '').toLowerCase().includes(query)
         );
       })
       .map((u) => ({

@@ -27,7 +27,8 @@ export async function POST(req: Request) {
     }
 
     // Check unique username
-    if (findUserByUsername(cleanUsername)) {
+    const existingUser = await findUserByUsername(cleanUsername);
+    if (existingUser) {
       return NextResponse.json(
         { success: false, message: `Username @${cleanUsername} sudah digunakan orang lain!` },
         { status: 400 }
@@ -35,7 +36,8 @@ export async function POST(req: Request) {
     }
 
     // Check unique email/phone
-    if (findUserByIdentifier(identifier)) {
+    const existingId = await findUserByIdentifier(identifier);
+    if (existingId) {
       return NextResponse.json(
         { success: false, message: `${identifierType === 'email' ? 'Email' : 'Nomor telepon'} sudah terdaftar!` },
         { status: 400 }
@@ -48,6 +50,7 @@ export async function POST(req: Request) {
       name: name.trim(),
       identifier: identifier.trim(),
       identifierType: identifierType === 'phone' ? 'phone' : 'email',
+      phone: identifierType === 'phone' ? identifier.trim() : undefined,
       pin: pin.trim(),
       avatar:
         avatar ||
@@ -57,7 +60,7 @@ export async function POST(req: Request) {
       createdAt: new Date().toISOString(),
     };
 
-    createUser(newUser);
+    await createUser(newUser);
 
     return NextResponse.json({
       success: true,
