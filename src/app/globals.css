@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --wa-green: #00a884;
+  --wa-green-dark: #008069;
+  --wa-bg-chat: #efeae2;
+  --wa-bg-panel: #f0f2f5;
+  --wa-bubble-in: #ffffff;
+  --wa-bubble-out: #d9fdd3;
+  --wa-border: #e9edef;
+  --wa-text-primary: #111b21;
+  --wa-text-secondary: #667781;
+}
+
+.dark {
+  --wa-green: #00a884;
+  --wa-green-dark: #00a884;
+  --wa-bg-chat: #0b141a;
+  --wa-bg-panel: #202c33;
+  --wa-bubble-in: #202c33;
+  --wa-bubble-out: #005c4b;
+  --wa-border: #222e35;
+  --wa-text-primary: #e9edef;
+  --wa-text-secondary: #8696a0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #111b21;
+  color: var(--wa-text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* WhatsApp Doodle Background Pattern */
+.wa-chat-bg-light {
+  background-color: #efeae2;
+  background-image: radial-gradient(#d1cdc7 0.75px, transparent 0.75px), radial-gradient(#d1cdc7 0.75px, #efeae2 0.75px);
+  background-size: 30px 30px;
+  background-position: 0 0, 15px 15px;
+}
+
+.wa-chat-bg-dark {
+  background-color: #0b141a;
+  background-image: radial-gradient(#182229 0.75px, transparent 0.75px), radial-gradient(#182229 0.75px, #0b141a 0.75px);
+  background-size: 30px 30px;
+  background-position: 0 0, 15px 15px;
+}
+
+/* Slim WhatsApp Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(134, 150, 160, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(134, 150, 160, 0.5);
+}
+
+/* Audio waveform bars animation */
+@keyframes pulseWave {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+.animate-wave-1 { animation: pulseWave 1s infinite ease-in-out; }
+.animate-wave-2 { animation: pulseWave 0.8s infinite ease-in-out 0.2s; }
+.animate-wave-3 { animation: pulseWave 1.2s infinite ease-in-out 0.4s; }
+.animate-wave-4 { animation: pulseWave 0.9s infinite ease-in-out 0.1s; }
