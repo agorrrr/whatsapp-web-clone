@@ -24,7 +24,7 @@ export function generateBotReply(
     }
     if (userMessage.type === 'audio') {
       return {
-        text: 'Saya sudah mendengarkan rekaman suara kamu! Kualitas audionya jernih ??',
+        text: 'Saya sudah mendengarkan rekaman suara kamu! Kualitas audionya jernih 👍',
         type: 'text',
         delayMs: 1600,
       };
@@ -90,14 +90,14 @@ export function generateBotReply(
   if (contact.id === 'c2') {
     if (userMessage.type === 'audio') {
       return {
-        text: 'Iyaaa aku dengerin kok hehe, suaramu jelas banget ??',
+        text: 'Iyaaa aku dengerin kok hehe, suaramu jelas banget ❤️',
         type: 'text',
         delayMs: 1700,
       };
     }
     if (userMessage.type === 'image') {
       return {
-        text: 'Bagus banget fotonyaa! Suka deh ??',
+        text: 'Bagus banget fotonyaa! Suka deh 😍',
         type: 'text',
         delayMs: 1400,
       };
@@ -111,7 +111,7 @@ export function generateBotReply(
     }
     const sitiReplies = [
       'Okeee, nanti kabarin kalau udah selesai yaa!',
-      'Hehe iya bener banget ??',
+      'Hehe iya bener banget ❤️',
       'Siap! Jangan lupa jaga kesehatan ya.',
       'Nanti kita ketemuan jam berapa jadinya?',
     ];
@@ -126,7 +126,7 @@ export function generateBotReply(
   const genericReplies = [
     'Oke siap, sudah terbaca!',
     'Baik, terima kasih infonya.',
-    'Sip mantap ??',
+    'Sip mantap 👍',
     'Nanti saya kabari lagi kelanjutannya ya.',
   ];
   return {

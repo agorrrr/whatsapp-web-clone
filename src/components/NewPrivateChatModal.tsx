@@ -255,7 +255,7 @@ export const NewPrivateChatModal: React.FC<NewPrivateChatModalProps> = ({
                 onClick={handleClearSearch}
                 className="mt-4 text-xs text-[#00a884] hover:underline"
               >
-                ? Kembali ke daftar teman
+                ← Kembali ke daftar teman
               </button>
             </div>
           ) : hasSearched ? (
@@ -272,7 +272,7 @@ export const NewPrivateChatModal: React.FC<NewPrivateChatModalProps> = ({
                 onClick={handleClearSearch}
                 className="mt-4 text-xs text-[#00a884] hover:underline"
               >
-                ? Kembali ke daftar teman
+                ← Kembali ke daftar teman
               </button>
             </div>
           ) : loadingFriends ? (

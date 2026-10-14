@@ -20,6 +20,7 @@ import {
   Edit3,
   UserPlus,
   Users,
+  Smartphone,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -32,6 +33,7 @@ interface ChatListProps {
   onOpenNewChat: () => void;
   onOpenNewGroup: () => void;
   onOpenEditProfile: () => void;
+  onOpenSyncRealWa?: () => void;
   onLogout: () => void;
 }
 
@@ -45,6 +47,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   onOpenNewChat,
   onOpenNewGroup,
   onOpenEditProfile,
+  onOpenSyncRealWa,
   onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -148,6 +151,16 @@ export const ChatList: React.FC<ChatListProps> = ({
                 >
                   <Users className="w-4 h-4 text-[#00a884]" />
                   <span>Grup Baru</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onOpenSyncRealWa?.();
+                  }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2 text-[#00a884]"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span className="font-semibold text-xs">Sync to Real WA</span>
                 </button>
                 <button
                   onClick={() => {

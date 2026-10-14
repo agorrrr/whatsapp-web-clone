@@ -4,6 +4,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    serverComponentsExternalPackages: ['@whiskeysockets/baileys', 'pino', 'qrcode'],
+  },
 };
 
 module.exports = nextConfig;

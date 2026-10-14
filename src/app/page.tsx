@@ -10,6 +10,7 @@ import { NewPrivateChatModal } from '../components/NewPrivateChatModal';
 import { EditProfileModal } from '../components/EditProfileModal';
 import { NewGroupModal } from '../components/NewGroupModal';
 import { GroupInfoModal } from '../components/GroupInfoModal';
+import { SyncRealWaModal } from '../components/SyncRealWaModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
 const SESSION_USER_KEY = 'wa_clone_active_user_v3';
@@ -28,6 +29,7 @@ export default function HomePage() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showSyncRealWa, setShowSyncRealWa] = useState(false);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -331,6 +333,20 @@ export default function HomePage() {
         seenMessageIdsRef.current.add(data.message.id);
         channelRef.current?.postMessage(data.message);
         syncRealtimeData();
+
+        // Forward to real WhatsApp if chatting with a synced WA contact
+        if (activeContactId.startsWith('wa_') && text) {
+          const targetPhone = activeContactId.replace('wa_', '');
+          fetch('/api/baileys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send',
+              to: targetPhone,
+              text,
+            }),
+          }).catch(() => {});
+        }
       }
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -481,6 +497,7 @@ export default function HomePage() {
             onOpenNewChat={() => setShowNewChat(true)}
             onOpenNewGroup={() => setShowNewGroup(true)}
             onOpenEditProfile={() => setShowEditProfile(true)}
+            onOpenSyncRealWa={() => setShowSyncRealWa(true)}
             onLogout={handleLogout}
           />
         </div>
@@ -544,6 +561,16 @@ export default function HomePage() {
           currentUser={currentUser}
           onUpdateSuccess={handleUpdateProfileSuccess}
           onClose={() => setShowEditProfile(false)}
+          onOpenSyncRealWa={() => setShowSyncRealWa(true)}
+        />
+      )}
+
+      {/* Sync to Real WhatsApp Modal */}
+      {showSyncRealWa && (
+        <SyncRealWaModal
+          currentUser={currentUser}
+          onProfileSynced={handleUpdateProfileSuccess}
+          onClose={() => setShowSyncRealWa(false)}
         />
       )}
     </div>

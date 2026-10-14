@@ -2,18 +2,20 @@
 
 import React, { useState, useRef } from 'react';
 import { UserAccount } from '../types/chat';
-import { X, Camera, Check, User, FileText, Upload } from 'lucide-react';
+import { X, Camera, Check, User, FileText, Upload, Smartphone, ArrowRight } from 'lucide-react';
 
 interface EditProfileModalProps {
   currentUser: UserAccount;
   onUpdateSuccess: (updated: UserAccount) => void;
   onClose: () => void;
+  onOpenSyncRealWa?: () => void;
 }
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   currentUser,
   onUpdateSuccess,
   onClose,
+  onOpenSyncRealWa,
 }) => {
   const [name, setName] = useState(currentUser.name);
   const [about, setAbout] = useState(currentUser.about || 'Ada di Ini Bukan Whatsapp');
@@ -196,6 +198,36 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               />
             </div>
           </div>
+
+          {/* Sync to Real WhatsApp Banner */}
+          {onOpenSyncRealWa && (
+            <div className="p-3 rounded-xl bg-gradient-to-r from-[#008069]/15 to-[#25d366]/20 border border-[#00a884]/40 flex items-center justify-between">
+              <div className="flex items-center space-x-3 min-w-0 pr-2">
+                <div className="w-8 h-8 rounded-full bg-[#25d366] text-white flex items-center justify-center flex-shrink-0 shadow">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-xs font-bold text-[#111b21] dark:text-[#e9edef] truncate">
+                    Sinkronkan ke WhatsApp Asli
+                  </h4>
+                  <p className="text-[11px] text-[#54656f] dark:text-[#8696a0] truncate">
+                    Scan QR / Pairing Code via Baileys
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSyncRealWa();
+                }}
+                className="px-3 py-1.5 rounded-lg bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-semibold flex items-center space-x-1 shadow-xs flex-shrink-0 transition-colors"
+              >
+                <span>Buka</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           <div className="flex space-x-3 pt-2">
             <button
