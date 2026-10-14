@@ -324,6 +324,7 @@ export default function HomePage() {
                 : prev.receiverIce,
             };
           });
+          return;
         } else if (event.data?.type === 'call_end') {
           setActiveCall(null);
         }
@@ -417,6 +418,10 @@ export default function HomePage() {
   const handleStartCall = async (type: CallType, targetUserId?: string) => {
     const receiverId = targetUserId || activeContactId;
     if (!currentUser || !receiverId) return;
+    if (receiverId === currentUser.id) {
+      alert('Tidak bisa memanggil akun sendiri. Silakan buka browser/tab lain dan login dengan akun teman yang berbeda.');
+      return;
+    }
     try {
       const res = await fetch('/api/calls', {
         method: 'POST',

@@ -37,6 +37,10 @@ export async function startCallSession({
 }): Promise<CallSession> {
   pruneOldCalls();
 
+  if (callerId === receiverId) {
+    throw new Error('Tidak dapat memanggil akun sendiri.');
+  }
+
   const caller = await findUserById(callerId);
   const receiver = await findUserById(receiverId);
 
@@ -83,7 +87,11 @@ export function getActiveCallForUser(userId: string): CallSession | null {
   pruneOldCalls();
   let found: CallSession | null = null;
   activeCalls.forEach((call) => {
-    if (!found && (call.callerId === userId || call.receiverId === userId)) {
+    if (
+      !found &&
+      (call.callerId === userId || call.receiverId === userId) &&
+      (call.status === 'ringing' || call.status === 'connected')
+    ) {
       found = call;
     }
   });

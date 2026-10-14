@@ -51,6 +51,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pendingCandidatesRef = useRef<any[]>([]);
+  const processedCandidatesRef = useRef<Set<string>>(new Set());
 
   // Synthesize WhatsApp-style ringing audio using native Web Audio API
   const startRingtone = (mode: 'outgoing' | 'incoming') => {
@@ -149,10 +150,14 @@ export const CallModal: React.FC<CallModalProps> = ({
     while (pendingCandidatesRef.current.length > 0) {
       const cand = pendingCandidatesRef.current.shift();
       if (cand) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(cand));
-        } catch (e) {
-          console.warn('[WebRTC] Error adding queued ICE:', e);
+        const key = typeof cand === 'string' ? cand : JSON.stringify(cand);
+        if (!processedCandidatesRef.current.has(key)) {
+          processedCandidatesRef.current.add(key);
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn('[WebRTC] Error adding queued ICE:', e);
+          }
         }
       }
     }
@@ -164,14 +169,32 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     async function initWebRTC() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: call.type === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 } } : false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: call.type === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 } } : false,
+          });
+        } catch (mediaErr: any) {
+          console.warn('[WebRTC] Video+Audio capture failed, falling back:', mediaErr);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            setIsVideoDisabled(true);
+          } catch (audioErr) {
+            console.warn('[WebRTC] Audio fallback failed, generating synthesized audio track:', audioErr);
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            const ctx = new AudioCtx();
+            const osc = ctx.createOscillator();
+            const dst = ctx.createMediaStreamDestination();
+            osc.connect(dst);
+            osc.start();
+            stream = dst.stream;
+          }
+        }
 
         if (!isMounted) {
           stream.getTracks().forEach((t) => t.stop());
@@ -293,7 +316,11 @@ export const CallModal: React.FC<CallModalProps> = ({
     const remoteCandidates = isCaller ? call.receiverIce : call.callerIce;
     if (Array.isArray(remoteCandidates)) {
       remoteCandidates.forEach((cand) => {
+        const key = typeof cand === 'string' ? cand : JSON.stringify(cand);
+        if (processedCandidatesRef.current.has(key)) return;
+
         if (pc.remoteDescription && pc.remoteDescription.type) {
+          processedCandidatesRef.current.add(key);
           try {
             pc.addIceCandidate(new RTCIceCandidate(cand));
           } catch {}
