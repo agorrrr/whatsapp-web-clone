@@ -222,7 +222,7 @@ export const ChatList: React.FC<ChatListProps> = ({
 
       {/* Security Status Strip */}
       <div className="bg-[#f0f2f5]/60 dark:bg-[#182229] px-4 py-2 text-[12px] text-[#54656f] dark:text-[#8696a0] border-b border-[#e9edef] dark:border-[#222e35] flex items-center justify-between flex-shrink-0">
-        <span>?? Chat pribadi terenkripsi</span>
+        <span>🔒 Chat pribadi terenkripsi</span>
         <button
           onClick={onOpenNewChat}
           className="text-[11px] text-[#00a884] font-medium hover:underline"

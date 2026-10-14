@@ -1,71 +1,87 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { UserAccount, GroupChat } from '../types/chat';
+import { GroupChat, GroupMember, UserAccount } from '../types/chat';
 import {
   X,
-  ArrowLeft,
-  ArrowRight,
-  Check,
   Camera,
-  Users,
-  Search,
+  Edit2,
+  Check,
+  UserPlus,
+  LogOut,
+  ShieldCheck,
+  MoreVertical,
+  Trash2,
+  Shield,
   Loader2,
-  Upload,
+  Users,
 } from 'lucide-react';
 
-interface NewGroupModalProps {
+interface GroupInfoModalProps {
+  groupId: string;
   currentUserId: string;
-  onSuccess: (newGroup: GroupChat) => void;
   onClose: () => void;
+  onGroupUpdated: (updatedGroup: GroupChat) => void;
+  onLeaveGroupSuccess: (groupId: string) => void;
 }
 
-export const NewGroupModal: React.FC<NewGroupModalProps> = ({
+export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
+  groupId,
   currentUserId,
-  onSuccess,
   onClose,
+  onGroupUpdated,
+  onLeaveGroupSuccess,
 }) => {
-  const [step, setStep] = useState<1 | 2>(1); // 1 = select members, 2 = group info
-  const [friends, setFriends] = useState<UserAccount[]>([]);
-  const [loadingFriends, setLoadingFriends] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-
-  // Step 2 state
-  const [groupName, setGroupName] = useState('');
-  const [groupDescription, setGroupDescription] = useState('');
-  const [groupAvatar, setGroupAvatar] = useState(
-    'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80'
-  );
-  const [creating, setCreating] = useState(false);
+  const [group, setGroup] = useState<GroupChat | null>(null);
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Editing state
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState('');
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descVal, setDescVal] = useState('');
+  const [savingInfo, setSavingInfo] = useState(false);
+
+  // Add Member state
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [friends, setFriends] = useState<UserAccount[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
+
+  // Active member menu dropdown
+  const [activeMenuMemberId, setActiveMenuMemberId] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load friends to add to group
-  useEffect(() => {
-    const fetchFriends = async () => {
-      setLoadingFriends(true);
-      try {
-        const res = await fetch(`/api/friends?userId=${encodeURIComponent(currentUserId)}`);
-        const data = await res.json();
-        if (data.success && Array.isArray(data.friends)) {
-          setFriends(data.friends);
-        }
-      } catch (err) {
-        console.warn('Gagal memuat teman:', err);
-      } finally {
-        setLoadingFriends(false);
+  const fetchGroupDetails = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/groups?groupId=${encodeURIComponent(groupId)}`);
+      const data = await res.json();
+      if (data.success && data.group) {
+        setGroup(data.group);
+        setMembers(data.members || []);
+        setNameVal(data.group.name);
+        setDescVal(data.group.description || '');
+      } else {
+        setErrorMsg(data.message || 'Gagal mengambil detail grup');
       }
-    };
-    fetchFriends();
-  }, [currentUserId]);
-
-  const toggleSelectMember = (id: string) => {
-    setSelectedMemberIds((prev) =>
-      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
-    );
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Koneksi bermasalah');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  useEffect(() => {
+    fetchGroupDetails();
+  }, [groupId]);
+
+  const isAdmin = group?.admins.includes(currentUserId) ?? false;
+
+  // Handle Photo Update
   const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -73,7 +89,7 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         const canvas = document.createElement('canvas');
         const MAX_SIZE = 400;
         let width = img.width;
@@ -97,7 +113,7 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          setGroupAvatar(dataUrl);
+          await updateGroup({ avatar: dataUrl });
         }
       };
       img.src = event.target?.result as string;
@@ -105,67 +121,173 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleCreateGroup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!groupName.trim()) {
-      setErrorMsg('Nama grup wajib diisi');
-      return;
-    }
-
-    setCreating(true);
+  const updateGroup = async (updates: { name?: string; description?: string; avatar?: string }) => {
+    setSavingInfo(true);
     setErrorMsg('');
     try {
       const res = await fetch('/api/groups', {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: groupName.trim(),
-          description: groupDescription.trim(),
-          avatar: groupAvatar,
-          creatorId: currentUserId,
-          memberIds: selectedMemberIds,
+          action: 'update_info',
+          groupId,
+          userId: currentUserId,
+          updates,
         }),
       });
-
       const data = await res.json();
       if (data.success && data.group) {
-        onSuccess(data.group);
-        onClose();
+        setGroup(data.group);
+        setMembers(data.members || []);
+        onGroupUpdated(data.group);
       } else {
-        setErrorMsg(data.message || 'Gagal membuat grup');
+        setErrorMsg(data.message || 'Gagal mengubah info grup');
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Koneksi bermasalah saat membuat grup');
+      setErrorMsg(err?.message || 'Gagal menyimpan perubahan');
     } finally {
-      setCreating(false);
+      setSavingInfo(false);
     }
   };
 
-  const filteredFriends = friends.filter(
-    (f) =>
-      f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (f.username || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleSaveName = async () => {
+    if (!nameVal.trim()) return;
+    await updateGroup({ name: nameVal.trim() });
+    setEditingName(false);
+  };
+
+  const handleSaveDesc = async () => {
+    await updateGroup({ description: descVal.trim() });
+    setEditingDesc(false);
+  };
+
+  // Open Add Member Picker
+  const handleOpenAddMember = async () => {
+    setShowAddMember(true);
+    setLoadingFriends(true);
+    try {
+      const res = await fetch(`/api/friends?userId=${encodeURIComponent(currentUserId)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.friends)) {
+        // Only show friends who are not yet members
+        const notMembers = data.friends.filter(
+          (f: UserAccount) => !group?.members.includes(f.id)
+        );
+        setFriends(notMembers);
+      }
+    } catch {
+      setFriends([]);
+    } finally {
+      setLoadingFriends(false);
+    }
+  };
+
+  const handleAddMember = async (memberId: string) => {
+    setAddingMember(true);
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_members',
+          groupId,
+          userId: currentUserId,
+          newMemberIds: [memberId],
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.group) {
+        setGroup(data.group);
+        setMembers(data.members || []);
+        onGroupUpdated(data.group);
+        setFriends((prev) => prev.filter((f) => f.id !== memberId));
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Gagal menambahkan anggota');
+    } finally {
+      setAddingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (targetMemberId: string) => {
+    if (!confirm('Apakah Anda yakin ingin mengeluarkan anggota ini dari grup?')) return;
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'remove_member',
+          groupId,
+          userId: currentUserId,
+          targetMemberId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.group) {
+        setGroup(data.group);
+        setMembers(data.members || []);
+        onGroupUpdated(data.group);
+        setActiveMenuMemberId(null);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Gagal mengeluarkan anggota');
+    }
+  };
+
+  const handleToggleAdmin = async (targetMemberId: string) => {
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'toggle_admin',
+          groupId,
+          userId: currentUserId,
+          targetMemberId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.group) {
+        setGroup(data.group);
+        setMembers(data.members || []);
+        onGroupUpdated(data.group);
+        setActiveMenuMemberId(null);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Gagal mengubah status admin');
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!confirm('Apakah Anda yakin ingin keluar dari grup ini?')) return;
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'leave_group',
+          groupId,
+          userId: currentUserId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLeaveGroupSuccess(groupId);
+        onClose();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Gagal keluar dari grup');
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3">
-      <div className="bg-white dark:bg-[#202c33] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-[#e9edef] dark:border-[#222e35] flex flex-col h-[580px] max-h-[90dvh]">
-        {/* Top Header */}
+      <div className="bg-white dark:bg-[#111b21] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-[#e9edef] dark:border-[#222e35] flex flex-col h-[600px] max-h-[92dvh]">
+        {/* Header */}
         <div className="h-14 px-5 bg-[#008069] dark:bg-[#1f2c34] text-white flex items-center justify-between flex-shrink-0">
           <div className="flex items-center space-x-2">
-            {step === 2 && (
-              <button
-                onClick={() => setStep(1)}
-                className="p-1 -ml-1 rounded-full hover:bg-white/10 transition-colors mr-1"
-                title="Kembali"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
             <Users className="w-5 h-5" />
-            <span className="font-semibold text-sm">
-              {step === 1 ? 'Tambah Anggota Grup' : 'Info Grup Baru'}
-            </span>
+            <span className="font-semibold text-sm">Info Grup</span>
           </div>
           <button
             onClick={onClose}
@@ -175,215 +297,323 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
           </button>
         </div>
 
-        {step === 1 ? (
-          /* STEP 1: Select Members */
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Search Friends Input */}
-            <div className="p-3 bg-[#f0f2f5] dark:bg-[#111b21] border-b border-[#e9edef] dark:border-[#222e35] flex-shrink-0">
-              <div className="flex items-center bg-white dark:bg-[#202c33] rounded-xl px-3 py-2 text-sm text-[#111b21] dark:text-[#e9edef] shadow-xs">
-                <Search className="w-4 h-4 text-[#8696a0] mr-2" />
-                <input
-                  type="text"
-                  placeholder="Cari teman untuk ditambahkan..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-transparent outline-none placeholder-[#8696a0] text-sm"
-                />
+        {loading ? (
+          <div className="flex-1 flex flex-col items-center justify-center space-y-3">
+            <Loader2 className="w-8 h-8 text-[#00a884] animate-spin" />
+            <span className="text-xs text-[#8696a0]">Memuat info grup...</span>
+          </div>
+        ) : !group ? (
+          <div className="p-8 text-center text-xs text-red-500">
+            {errorMsg || 'Grup tidak ditemukan'}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            {errorMsg && (
+              <div className="m-4 p-2.5 rounded-lg bg-red-500/10 text-red-500 text-xs text-center font-medium">
+                {errorMsg}
               </div>
+            )}
+
+            {/* Group Hero (Avatar & Name) */}
+            <div className="p-6 bg-white dark:bg-[#111b21] flex flex-col items-center border-b border-[#e9edef] dark:border-[#222e35]">
+              <div
+                onClick={() => isAdmin && fileInputRef.current?.click()}
+                className={`relative group ${isAdmin ? 'cursor-pointer' : ''}`}
+                title={isAdmin ? 'Ubah Foto Grup' : ''}
+              >
+                <img
+                  src={group.avatar}
+                  alt={group.name}
+                  className="w-24 h-24 rounded-full object-cover ring-4 ring-[#00a884]/30"
+                />
+                {isAdmin && (
+                  <div className="absolute inset-0 rounded-full bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white">
+                    <Camera className="w-6 h-6 mb-1" />
+                    <span className="text-[10px] font-bold">Ubah Foto</span>
+                  </div>
+                )}
+                {isAdmin && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarFile}
+                    className="hidden"
+                  />
+                )}
+              </div>
+
+              {/* Group Name Display / Edit */}
+              <div className="mt-4 flex items-center justify-center w-full">
+                {editingName ? (
+                  <div className="flex items-center space-x-2 w-full max-w-xs">
+                    <input
+                      type="text"
+                      value={nameVal}
+                      maxLength={50}
+                      onChange={(e) => setNameVal(e.target.value)}
+                      autoFocus
+                      className="flex-1 bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg px-3 py-1.5 text-sm text-[#111b21] dark:text-[#e9edef] outline-none border border-[#00a884]"
+                    />
+                    <button
+                      onClick={handleSaveName}
+                      disabled={savingInfo}
+                      className="p-2 rounded-lg bg-[#00a884] text-white hover:bg-[#008f70]"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingName(false);
+                        setNameVal(group.name);
+                      }}
+                      className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-[#8696a0]"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-bold text-lg text-[#111b21] dark:text-[#e9edef]">
+                      {group.name}
+                    </h3>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setEditingName(true)}
+                        className="p-1 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-[#8696a0] hover:text-[#00a884] transition-colors"
+                        title="Edit Nama Grup"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <span className="text-xs text-[#8696a0] mt-1">
+                Grup · {members.length} peserta
+              </span>
             </div>
 
-            {/* Selected Members Pills */}
-            {selectedMemberIds.length > 0 && (
-              <div className="px-3 py-2 bg-[#f8f9fa] dark:bg-[#182229] border-b border-[#e9edef] dark:border-[#222e35] flex flex-wrap gap-1.5 max-h-24 overflow-y-auto flex-shrink-0">
-                {selectedMemberIds.map((id) => {
-                  const m = friends.find((f) => f.id === id);
+            {/* Description Section */}
+            <div className="p-4 bg-white dark:bg-[#111b21] border-b border-[#e9edef] dark:border-[#222e35]">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-[#00a884]">Deskripsi Grup</span>
+                {isAdmin && !editingDesc && (
+                  <button
+                    onClick={() => setEditingDesc(true)}
+                    className="p-1 text-[#8696a0] hover:text-[#00a884] transition-colors"
+                    title="Edit Deskripsi"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {editingDesc ? (
+                <div className="flex flex-col space-y-2">
+                  <textarea
+                    value={descVal}
+                    maxLength={200}
+                    rows={2}
+                    onChange={(e) => setDescVal(e.target.value)}
+                    className="w-full bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg p-2.5 text-xs text-[#111b21] dark:text-[#e9edef] outline-none border border-[#00a884] resize-none"
+                  />
+                  <div className="flex justify-end space-x-2">
+                    <button
+                      onClick={() => {
+                        setEditingDesc(false);
+                        setDescVal(group.description || '');
+                      }}
+                      className="px-3 py-1 rounded-md text-xs text-[#8696a0] hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      onClick={handleSaveDesc}
+                      disabled={savingInfo}
+                      className="px-3 py-1 rounded-md text-xs font-bold bg-[#00a884] text-white hover:bg-[#008f70]"
+                    >
+                      Simpan
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-[#54656f] dark:text-[#8696a0] leading-relaxed whitespace-pre-wrap">
+                  {group.description || 'Tidak ada deskripsi grup.'}
+                </p>
+              )}
+            </div>
+
+            {/* Members Section */}
+            <div className="p-4 bg-white dark:bg-[#111b21] border-b border-[#e9edef] dark:border-[#222e35]">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-[#54656f] dark:text-[#8696a0] uppercase tracking-wider">
+                  {members.length} Peserta
+                </span>
+                {isAdmin && (
+                  <button
+                    onClick={handleOpenAddMember}
+                    className="flex items-center space-x-1.5 text-xs font-bold text-[#00a884] hover:underline"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Tambah Anggota</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Add Member Drawer / Sub-list */}
+              {showAddMember && (
+                <div className="mb-4 p-3 rounded-xl bg-[#f0f2f5] dark:bg-[#202c33] border border-[#e9edef] dark:border-[#2a3942] animate-fadeIn">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-[#111b21] dark:text-[#e9edef]">
+                      Pilih Teman untuk Ditambahkan
+                    </span>
+                    <button
+                      onClick={() => setShowAddMember(false)}
+                      className="p-1 rounded-full text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef]"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {loadingFriends ? (
+                    <div className="py-4 text-center text-xs text-[#8696a0]">
+                      <Loader2 className="w-5 h-5 mx-auto animate-spin mb-1 text-[#00a884]" />
+                      Memuat teman...
+                    </div>
+                  ) : friends.length === 0 ? (
+                    <p className="text-xs text-[#8696a0] py-2">
+                      Semua teman Anda sudah berada di dalam grup ini.
+                    </p>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto divide-y divide-[#e9edef] dark:divide-[#2a3942]">
+                      {friends.map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-center justify-between py-2 text-xs"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <img
+                              src={f.avatar}
+                              alt={f.name}
+                              className="w-7 h-7 rounded-full object-cover"
+                            />
+                            <div className="truncate">
+                              <span className="font-semibold text-[#111b21] dark:text-[#e9edef] block truncate">
+                                {f.name}
+                              </span>
+                              <span className="text-[10px] text-[#00a884]">@{f.username}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleAddMember(f.id)}
+                            disabled={addingMember}
+                            className="px-2.5 py-1 rounded-lg bg-[#00a884] text-white text-[11px] font-bold hover:bg-[#008f70] flex-shrink-0"
+                          >
+                            Tambah
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Members List */}
+              <div className="divide-y divide-[#e9edef] dark:divide-[#222e35]">
+                {members.map((member) => {
+                  const isCurrent = member.id === currentUserId;
                   return (
                     <div
-                      key={id}
-                      className="flex items-center bg-[#00a884]/15 dark:bg-[#00a884]/25 text-[#00a884] px-2.5 py-1 rounded-full text-xs font-semibold space-x-1"
+                      key={member.id}
+                      className="flex items-center justify-between py-2.5 relative group"
                     >
-                      <img
-                        src={m?.avatar}
-                        alt={m?.name || ''}
-                        className="w-4 h-4 rounded-full object-cover"
-                      />
-                      <span className="max-w-[100px] truncate">{m?.name || 'Teman'}</span>
-                      <button
-                        onClick={() => toggleSelectMember(id)}
-                        className="hover:text-red-500 transition-colors ml-0.5"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <img
+                          src={member.avatar}
+                          alt={member.name}
+                          className="w-10 h-10 rounded-full object-cover ring-2 ring-[#00a884]/20"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-semibold text-sm text-[#111b21] dark:text-[#e9edef] truncate">
+                              {isCurrent ? 'Anda' : member.name}
+                            </span>
+                            {member.username && (
+                              <span className="text-[11px] text-[#8696a0]">
+                                @{member.username}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#8696a0] truncate">
+                            {member.about || 'Ada di Ini Bukan Whatsapp'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 flex-shrink-0">
+                        {member.isAdmin && (
+                          <span className="px-2 py-0.5 rounded-full bg-[#00a884]/15 text-[#00a884] text-[10px] font-bold flex items-center space-x-1">
+                            <ShieldCheck className="w-3 h-3" />
+                            <span>Admin Grup</span>
+                          </span>
+                        )}
+
+                        {/* Admin Action Menu for other members */}
+                        {isAdmin && !isCurrent && (
+                          <div className="relative">
+                            <button
+                              onClick={() =>
+                                setActiveMenuMemberId(
+                                  activeMenuMemberId === member.id ? null : member.id
+                                )
+                              }
+                              className="p-1 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-[#8696a0]"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+
+                            {activeMenuMemberId === member.id && (
+                              <div className="absolute right-0 top-7 w-44 bg-white dark:bg-[#233138] rounded-xl shadow-xl py-1 z-30 border border-[#e9edef] dark:border-[#2a3942] text-xs">
+                                <button
+                                  onClick={() => handleToggleAdmin(member.id)}
+                                  className="w-full text-left px-3 py-2 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2 text-[#111b21] dark:text-[#e9edef]"
+                                >
+                                  <Shield className="w-3.5 h-3.5 text-[#00a884]" />
+                                  <span>
+                                    {member.isAdmin ? 'Berhentikan Admin' : 'Jadikan Admin Grup'}
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={() => handleRemoveMember(member.id)}
+                                  className="w-full text-left px-3 py-2 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2 text-red-500"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Keluarkan dari Grup</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            )}
-
-            {/* Friend List */}
-            <div className="flex-1 overflow-y-auto divide-y divide-[#e9edef] dark:divide-[#222e35]">
-              {loadingFriends ? (
-                <div className="p-8 flex flex-col items-center justify-center space-y-3">
-                  <Loader2 className="w-7 h-7 text-[#00a884] animate-spin" />
-                  <span className="text-xs text-[#8696a0]">Memuat daftar teman...</span>
-                </div>
-              ) : filteredFriends.length === 0 ? (
-                <div className="p-8 text-center text-xs text-[#8696a0]">
-                  {friends.length === 0
-                    ? 'Belum ada teman terdaftar. Tambah teman terlebih dahulu via tombol Tambah Teman.'
-                    : 'Tidak ada teman yang cocok dengan pencarian.'}
-                </div>
-              ) : (
-                filteredFriends.map((friend) => {
-                  const isSelected = selectedMemberIds.includes(friend.id);
-                  return (
-                    <div
-                      key={friend.id}
-                      onClick={() => toggleSelectMember(friend.id)}
-                      className={`flex items-center px-4 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer transition-colors space-x-3.5 ${
-                        isSelected ? 'bg-[#00a884]/10 dark:bg-[#00a884]/15' : ''
-                      }`}
-                    >
-                      <div className="relative flex-shrink-0">
-                        <img
-                          src={friend.avatar}
-                          alt={friend.name}
-                          className="w-11 h-11 rounded-full object-cover ring-2 ring-[#00a884]/30"
-                        />
-                        {isSelected && (
-                          <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#00a884] text-white flex items-center justify-center border-2 border-white dark:border-[#111b21]">
-                            <Check className="w-2.5 h-2.5 stroke-[3]" />
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h5 className="font-semibold text-sm text-[#111b21] dark:text-[#e9edef] truncate">
-                            {friend.name}
-                          </h5>
-                          <span className="text-[11px] text-[#00a884] font-medium">
-                            @{friend.username}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#8696a0] truncate mt-0.5">
-                          {friend.about || 'Ada di Ini Bukan Whatsapp'}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
             </div>
 
-            {/* Bottom Next Button */}
-            <div className="p-4 bg-white dark:bg-[#202c33] border-t border-[#e9edef] dark:border-[#222e35] flex items-center justify-between flex-shrink-0">
-              <span className="text-xs text-[#8696a0]">
-                {selectedMemberIds.length} anggota dipilih
-              </span>
+            {/* Leave Group Action */}
+            <div className="p-4 bg-white dark:bg-[#111b21]">
               <button
-                onClick={() => setStep(2)}
-                disabled={selectedMemberIds.length === 0}
-                className="py-2.5 px-5 rounded-xl bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-bold flex items-center space-x-2 shadow-md transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
+                onClick={handleLeaveGroup}
+                className="w-full py-2.5 rounded-xl border border-red-500/30 text-red-500 hover:bg-red-500/10 text-xs font-bold flex items-center justify-center space-x-2 transition-colors"
               >
-                <span>Lanjut</span>
-                <ArrowRight className="w-4 h-4" />
+                <LogOut className="w-4 h-4" />
+                <span>Keluar dari Grup</span>
               </button>
             </div>
           </div>
-        ) : (
-          /* STEP 2: Group Info & Avatar */
-          <form onSubmit={handleCreateGroup} className="flex-1 flex flex-col justify-between p-6">
-            <div className="flex flex-col items-center">
-              {/* Group Avatar Upload */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="relative cursor-pointer group mb-4"
-                title="Ubah foto grup"
-              >
-                <img
-                  src={groupAvatar}
-                  alt="Avatar Grup"
-                  className="w-24 h-24 rounded-full object-cover ring-4 ring-[#00a884]/30"
-                />
-                <div className="absolute inset-0 rounded-full bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white">
-                  <Camera className="w-6 h-6 mb-1" />
-                  <span className="text-[10px] font-bold">Ubah Foto</span>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarFile}
-                  className="hidden"
-                />
-              </div>
-
-              {errorMsg && (
-                <div className="w-full mb-3 p-2 rounded-lg bg-red-500/10 text-red-500 text-xs text-center font-medium">
-                  {errorMsg}
-                </div>
-              )}
-
-              {/* Group Name input */}
-              <div className="w-full mb-4">
-                <label className="block text-xs font-semibold text-[#8696a0] mb-1">
-                  Nama Grup *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ketik subjek / nama grup..."
-                  value={groupName}
-                  maxLength={50}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  autoFocus
-                  required
-                  className="w-full bg-[#f0f2f5] dark:bg-[#111b21] rounded-xl px-3.5 py-2.5 text-sm text-[#111b21] dark:text-[#e9edef] border border-[#e9edef] dark:border-[#222e35] outline-none focus:border-[#00a884]"
-                />
-              </div>
-
-              {/* Group Description input */}
-              <div className="w-full mb-4">
-                <label className="block text-xs font-semibold text-[#8696a0] mb-1">
-                  Deskripsi Grup (Opsional)
-                </label>
-                <textarea
-                  placeholder="Tambahkan deskripsi grup..."
-                  value={groupDescription}
-                  maxLength={200}
-                  rows={3}
-                  onChange={(e) => setGroupDescription(e.target.value)}
-                  className="w-full bg-[#f0f2f5] dark:bg-[#111b21] rounded-xl px-3.5 py-2 text-sm text-[#111b21] dark:text-[#e9edef] border border-[#e9edef] dark:border-[#222e35] outline-none focus:border-[#00a884] resize-none"
-                />
-              </div>
-
-              {/* Members preview */}
-              <div className="w-full bg-[#f0f2f5]/60 dark:bg-[#111b21]/60 rounded-xl p-3 flex items-center justify-between text-xs text-[#8696a0]">
-                <span>Anggota: {selectedMemberIds.length} teman + Anda (Admin)</span>
-                <button
-                  type="button"
-                  onClick={() => setStep(1)}
-                  className="text-[#00a884] font-semibold hover:underline"
-                >
-                  Ubah
-                </button>
-              </div>
-            </div>
-
-            {/* Create Button */}
-            <button
-              type="submit"
-              disabled={creating || !groupName.trim()}
-              className="w-full py-3 rounded-xl bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-bold flex items-center justify-center space-x-2 shadow-lg transition-transform hover:scale-[1.01] disabled:opacity-50"
-            >
-              {creating ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Check className="w-5 h-5" />
-              )}
-              <span>Buat Grup</span>
-            </button>
-          </form>
         )}
       </div>
     </div>
