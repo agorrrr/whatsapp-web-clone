@@ -45,7 +45,7 @@ export async function readDb(): Promise<DatabaseSchema> {
         headers: {
           Authorization: `token ${GITHUB_TOKEN}`,
           Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'WhatsApp-Clone-Backend',
+          'User-Agent': 'Ini-Bukan-Whatsapp-Backend',
         },
         cache: 'no-store',
       });
@@ -104,7 +104,7 @@ export async function writeDb(db: DatabaseSchema): Promise<void> {
           Authorization: `token ${GITHUB_TOKEN}`,
           Accept: 'application/vnd.github.v3+json',
           'Content-Type': 'application/json',
-          'User-Agent': 'WhatsApp-Clone-Backend',
+          'User-Agent': 'Ini-Bukan-Whatsapp-Backend',
         },
         body: JSON.stringify({
           files: {

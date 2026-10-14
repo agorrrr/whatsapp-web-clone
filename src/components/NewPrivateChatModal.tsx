@@ -208,7 +208,7 @@ export const NewPrivateChatModal: React.FC<NewPrivateChatModalProps> = ({
                   @{user.username}
                 </span>
                 <p className="text-xs text-[#8696a0] max-w-xs truncate mb-4">
-                  {user.about || 'Ada di WhatsApp Web'}
+                  {user.about || 'Ada di Ini Bukan Whatsapp'}
                 </p>
 
                 {actionFeedback && (
@@ -322,7 +322,7 @@ export const NewPrivateChatModal: React.FC<NewPrivateChatModalProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-[#8696a0] truncate mt-0.5">
-                        {friend.about || 'Ada di WhatsApp Web'}
+                        {friend.about || 'Ada di Ini Bukan Whatsapp'}
                       </p>
                     </div>
 

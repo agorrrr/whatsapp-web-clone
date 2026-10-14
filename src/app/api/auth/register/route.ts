@@ -55,7 +55,7 @@ export async function POST(req: Request) {
       avatar:
         avatar ||
         'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-      about: about?.trim() || 'Ada di WhatsApp Web Clone',
+      about: about?.trim() || 'Ada di Ini Bukan Whatsapp',
       isOnline: true,
       createdAt: new Date().toISOString(),
     };

@@ -20,7 +20,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [avatar, setAvatar] = useState(
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
   );
-  const [about, setAbout] = useState('Ada di WhatsApp Web Clone');
+  const [about, setAbout] = useState('Ada di Ini Bukan Whatsapp');
 
   // Login form state
   const [loginIdentifier, setLoginIdentifier] = useState('');
@@ -118,7 +118,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-2">
             <Sparkles className="w-6 h-6 text-[#25d366]" />
           </div>
-          <h2 className="text-lg font-bold">WhatsApp Web Clone</h2>
+          <h2 className="text-lg font-bold">Ini Bukan Whatsapp</h2>
           <p className="text-xs text-white/80 mt-0.5">
             Daftar dengan Email atau Telepon untuk mendapatkan @username
           </p>

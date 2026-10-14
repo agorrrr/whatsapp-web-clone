@@ -141,7 +141,7 @@ export default function HomePage() {
           name: msg.senderName,
           avatar:
             'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-          about: 'Kontak WhatsApp',
+          about: 'Kontak Ini Bukan Whatsapp',
           isOnline: true,
           unreadCount: otherUserId !== activeContactId ? 1 : 0,
           lastMessage: {
@@ -289,7 +289,7 @@ export default function HomePage() {
       <div className="h-[100dvh] w-screen flex items-center justify-center bg-[#111b21] text-white">
         <div className="flex flex-col items-center space-y-4">
           <div className="w-10 h-10 border-3 border-[#00a884] border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-medium tracking-wide">WhatsApp Web...</span>
+          <span className="text-xs font-medium tracking-wide">Ini Bukan Whatsapp...</span>
         </div>
       </div>
     );

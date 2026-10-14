@@ -1,24 +1,24 @@
-# WhatsApp Web Clone 💬
+# Ini Bukan Whatsapp ??
 
-Aplikasi web chat yang dirancang semirip mungkin dengan antarmuka dan interaksi **WhatsApp Web**.
+Aplikasi web chat pribadi yang dirancang dengan antarmuka dan interaksi mirip chat modern.
 
 ![WhatsApp Web Preview](https://static.whatsapp.net/rsrc.php/v3/yP/r/N7XG-J5c2v6.png)
 
-## ✨ Fitur Utama
-- 💬 **Chat Realtime & Teks**: Mengirim dan menerima pesan teks dengan bubble khas WhatsApp, timestamp, dan status centang (abu-abu terkirim, biru terbaca).
-- 📷 **Kirim Foto / Gambar**: Unggah foto dari perangkat, preview dengan teks keterangan (caption), dan lightbox pembesar gambar saat diklik.
-- 🎙️ **Rekam Suara (Voice Note)**: Merekam suara langsung lewat mikrofon browser dengan indikator timer dan visualisasi gelombang suara. Dilengkapi pemutar audio dengan pengaturan kecepatan playback (1x, 1.5x, 2x).
-- 🎭 **Stiker & Emoji Drawer**: Panel stiker interaktif dan pemilih emoji lengkap untuk mengekspresikan percakapan.
-- ❤️ **Reaksi Pesan**: Berikan reaksi emoji pada pesan mana pun (hover bubble pesan).
-- 🤖 **Simulasi Kontak & Bot Asisten**: Dilengkapi kontak simulasi interaktif (Budi, Siti, Tech Lead, Bot Asisten) dengan indikator status *sedang mengetik...* dan balasan otomatis alami.
-- 🌓 **Mode Terang & Gelap (Dark Mode)**: Tema warna dan wallpaper doodle WhatsApp Web autentik.
-- 💾 **Penyimpanan Lokal Persisten**: Percakapan dan kontak tersimpan otomatis di browser (`localStorage`).
-- 📱 **Desain Responsif**: Nyaman digunakan di layar Desktop maupun Mobile browser.
-- 🚫 *Fitur Telepon & Video Call dinonaktifkan sesuai spesifikasi.*
+## ? Fitur Utama
+- ?? **Chat Realtime & Teks**: Mengirim dan menerima pesan teks dengan bubble khas WhatsApp, timestamp, dan status centang (abu-abu terkirim, biru terbaca).
+- ?? **Kirim Foto / Gambar**: Unggah foto dari perangkat, preview dengan teks keterangan (caption), dan lightbox pembesar gambar saat diklik.
+- ??? **Rekam Suara (Voice Note)**: Merekam suara langsung lewat mikrofon browser dengan indikator timer dan visualisasi gelombang suara. Dilengkapi pemutar audio dengan pengaturan kecepatan playback (1x, 1.5x, 2x).
+- ?? **Stiker & Emoji Drawer**: Panel stiker interaktif dan pemilih emoji lengkap untuk mengekspresikan percakapan.
+- ?? **Reaksi Pesan**: Berikan reaksi emoji pada pesan mana pun (hover bubble pesan).
+- ?? **Simulasi Kontak & Bot Asisten**: Dilengkapi kontak simulasi interaktif (Budi, Siti, Tech Lead, Bot Asisten) dengan indikator status *sedang mengetik...* dan balasan otomatis alami.
+- ?? **Mode Terang & Gelap (Dark Mode)**: Tema warna dan wallpaper doodle WhatsApp Web autentik.
+- ?? **Penyimpanan Lokal Persisten**: Percakapan dan kontak tersimpan otomatis di browser (`localStorage`).
+- ?? **Desain Responsif**: Nyaman digunakan di layar Desktop maupun Mobile browser.
+- ?? *Fitur Telepon & Video Call dinonaktifkan sesuai spesifikasi.*
 
 ---
 
-## 🚀 Cara Menjalankan di Lokal
+## ?? Cara Menjalankan di Lokal
 
 ### Prasyarat
 - [Node.js](https://nodejs.org/) v18 atau lebih baru
@@ -46,7 +46,7 @@ Aplikasi web chat yang dirancang semirip mungkin dengan antarmuka dan interaksi 
 
 ---
 
-## ☁️ Cara Deploy ke Vercel
+## ?? Cara Deploy ke Vercel
 
 Aplikasi ini menggunakan **Next.js**, sehingga dioptimalkan secara langsung untuk platform **Vercel** tanpa konfigurasi tambahan (*zero configuration*).
 
@@ -65,7 +65,7 @@ vercel
 
 ---
 
-## 🛠️ Teknologi yang Digunakan
+## ??? Teknologi yang Digunakan
 - **Framework**: [Next.js 14](https://nextjs.org/) (App Router)
 - **UI Library**: React 18, [Tailwind CSS](https://tailwindcss.com/)
 - **Icons**: [Lucide React](https://lucide.dev/)

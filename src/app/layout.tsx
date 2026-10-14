@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'WhatsApp Web',
-  description: 'WhatsApp Web Clone - Chat, Foto, Voice Note, Stiker',
+  title: 'Ini Bukan Whatsapp',
+  description: 'Ini Bukan Whatsapp - Chat, Foto, Voice Note, Stiker',
   icons: {
     icon: 'https://static.whatsapp.net/rsrc.php/v3/yP/r/rNqcCO-XYdm.png',
   },

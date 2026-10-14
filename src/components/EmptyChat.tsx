@@ -11,12 +11,12 @@ export const EmptyChat: React.FC = () => {
       </div>
 
       <h1 className="text-3xl font-light text-[#41525d] dark:text-[#e9edef] mb-3">
-        WhatsApp Web
+        Ini Bukan Whatsapp
       </h1>
 
       <p className="text-sm text-[#667781] dark:text-[#8696a0] max-w-md leading-relaxed mb-10">
         Kirim dan terima pesan teks, foto, rekaman suara, dan stiker secara realtime.
-        Tampilan dan interaksi dirancang presisi menyerupai WhatsApp Web.
+        Tampilan dan interaksi dirancang presisi di aplikasi Ini Bukan Whatsapp.
       </p>
 
       <div className="flex items-center text-xs text-[#8696a0] space-x-1.5 mt-auto">

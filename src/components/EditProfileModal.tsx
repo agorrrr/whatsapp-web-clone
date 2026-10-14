@@ -16,7 +16,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   onClose,
 }) => {
   const [name, setName] = useState(currentUser.name);
-  const [about, setAbout] = useState(currentUser.about || 'Ada di WhatsApp Web Clone');
+  const [about, setAbout] = useState(currentUser.about || 'Ada di Ini Bukan Whatsapp');
   const [avatar, setAvatar] = useState(currentUser.avatar);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
