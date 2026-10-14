@@ -10,8 +10,30 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const query = (searchParams.get('q') || '').toLowerCase().trim();
     const excludeId = searchParams.get('exclude') || '';
+    const userId = searchParams.get('userId');
 
     const allUsers = await getAllUsers();
+
+    if (userId) {
+      const user = allUsers.find((u) => u.id === userId);
+      return NextResponse.json({
+        success: !!user,
+        user: user
+          ? {
+              id: user.id,
+              username: user.username,
+              name: user.name,
+              identifier: user.identifier,
+              phone: user.phone,
+              avatar: user.avatar,
+              about: user.about,
+              isOnline: user.isOnline ?? true,
+              lastSeen: user.lastSeen,
+              createdAt: user.createdAt,
+            }
+          : null,
+      });
+    }
     const filtered = allUsers
       .filter((u) => u.id !== excludeId)
       .filter((u) => {

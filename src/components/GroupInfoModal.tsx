@@ -23,6 +23,7 @@ interface GroupInfoModalProps {
   onClose: () => void;
   onGroupUpdated: (updatedGroup: GroupChat) => void;
   onLeaveGroupSuccess: (groupId: string) => void;
+  onOpenMemberProfile?: (member: GroupMember) => void;
 }
 
 export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
@@ -31,6 +32,7 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
   onClose,
   onGroupUpdated,
   onLeaveGroupSuccess,
+  onOpenMemberProfile,
 }) => {
   const [group, setGroup] = useState<GroupChat | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
@@ -529,7 +531,13 @@ export const GroupInfoModal: React.FC<GroupInfoModalProps> = ({
                       key={member.id}
                       className="flex items-center justify-between py-2.5 relative group"
                     >
-                      <div className="flex items-center space-x-3 min-w-0">
+                      <div
+                        onClick={() => !isCurrent && onOpenMemberProfile?.(member)}
+                        className={`flex items-center space-x-3 min-w-0 ${
+                          !isCurrent ? 'cursor-pointer hover:opacity-85' : ''
+                        }`}
+                        title={!isCurrent ? 'Klik untuk lihat profil' : ''}
+                      >
                         <img
                           src={member.avatar}
                           alt={member.name}

@@ -34,6 +34,7 @@ interface ChatListProps {
   onOpenNewGroup: () => void;
   onOpenEditProfile: () => void;
   onOpenSyncRealWa?: () => void;
+  onOpenProfile?: (contact: ContactItem) => void;
   onLogout: () => void;
 }
 
@@ -48,6 +49,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   onOpenNewGroup,
   onOpenEditProfile,
   onOpenSyncRealWa,
+  onOpenProfile,
   onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -279,11 +281,20 @@ export const ChatList: React.FC<ChatListProps> = ({
                 }`}
               >
                 {/* Contact Avatar */}
-                <div className="relative mr-3 flex-shrink-0">
+                <div
+                  className="relative mr-3 flex-shrink-0 cursor-pointer group"
+                  onClick={(e) => {
+                    if (!contact.isGroup && onOpenProfile) {
+                      e.stopPropagation();
+                      onOpenProfile(contact);
+                    }
+                  }}
+                  title={!contact.isGroup ? 'Lihat profil' : undefined}
+                >
                   <img
                     src={contact.avatar}
                     alt={contact.name}
-                    className="w-12 h-12 rounded-full object-cover"
+                    className="w-12 h-12 rounded-full object-cover group-hover:opacity-90 transition-opacity"
                   />
                   {contact.isOnline && (
                     <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-[#00a884] border-2 border-white dark:border-[#111b21]" />

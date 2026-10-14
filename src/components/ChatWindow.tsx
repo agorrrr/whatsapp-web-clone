@@ -38,6 +38,8 @@ interface ChatWindowProps {
   onClearChat: () => void;
   onBackMobile?: () => void;
   onOpenGroupInfo?: () => void;
+  onOpenProfile?: (contact: ContactItem) => void;
+  onSenderClick?: (senderId: string) => void;
   onStartCall?: (type: 'audio' | 'video') => void;
   theme: 'dark' | 'light';
 }
@@ -51,6 +53,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onClearChat,
   onBackMobile,
   onOpenGroupInfo,
+  onOpenProfile,
+  onSenderClick,
   onStartCall,
   theme,
 }) => {
@@ -143,9 +147,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       {/* Top Header */}
       <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between border-b border-[#e9edef] dark:border-[#222e35] select-none z-20">
         <div
-          onClick={() => contact.isGroup && onOpenGroupInfo?.()}
-          className={`flex items-center space-x-3 ${contact.isGroup ? 'cursor-pointer hover:opacity-90' : ''}`}
-          title={contact.isGroup ? 'Klik untuk lihat info grup' : ''}
+          onClick={() => {
+            if (contact.isGroup) {
+              onOpenGroupInfo?.();
+            } else {
+              onOpenProfile?.(contact);
+            }
+          }}
+          className="flex items-center space-x-3 cursor-pointer hover:opacity-90 transition-opacity"
+          title={contact.isGroup ? 'Klik untuk lihat info grup' : 'Klik untuk lihat info profil'}
         >
           {onBackMobile && (
             <button
@@ -228,7 +238,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
             {showMenu && (
               <div className="absolute right-0 top-11 w-44 bg-white dark:bg-[#233138] rounded-xl shadow-xl py-2 z-50 border border-[#e9edef] dark:border-[#2a3942] text-sm text-[#111b21] dark:text-[#d1d7db]">
-                {contact.isGroup && (
+                {contact.isGroup ? (
                   <button
                     onClick={() => {
                       setShowMenu(false);
@@ -237,6 +247,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                     className="w-full text-left px-4 py-2 hover:bg-black/5 dark:hover:bg-white/5 text-[#111b21] dark:text-[#e9edef]"
                   >
                     Info grup
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      onOpenProfile?.(contact);
+                    }}
+                    className="w-full text-left px-4 py-2 hover:bg-black/5 dark:hover:bg-white/5 text-[#111b21] dark:text-[#e9edef]"
+                  >
+                    Info kontak
                   </button>
                 )}
                 <button
@@ -284,6 +304,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             onReply={(m) => setReplyingMessage(m)}
             onReaction={onReaction}
             onImageClick={(url) => setLightboxImage(url)}
+            onSenderClick={onSenderClick}
           />
         ))}
 

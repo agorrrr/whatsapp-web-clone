@@ -12,6 +12,7 @@ import { NewGroupModal } from '../components/NewGroupModal';
 import { GroupInfoModal } from '../components/GroupInfoModal';
 import { SyncRealWaModal } from '../components/SyncRealWaModal';
 import { CallModal } from '../components/CallModal';
+import { UserProfileModal } from '../components/UserProfileModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
 const SESSION_USER_KEY = 'wa_clone_active_user_v3';
@@ -25,6 +26,7 @@ export default function HomePage() {
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
+  const [inspectedUser, setInspectedUser] = useState<ContactItem | UserAccount | null>(null);
 
   // Modals
   const [showNewChat, setShowNewChat] = useState(false);
@@ -383,8 +385,9 @@ export default function HomePage() {
     setMessages([]);
   };
 
-  const handleStartCall = async (type: CallType) => {
-    if (!currentUser || !activeContactId) return;
+  const handleStartCall = async (type: CallType, targetUserId?: string) => {
+    const receiverId = targetUserId || activeContactId;
+    if (!currentUser || !receiverId) return;
     try {
       const res = await fetch('/api/calls', {
         method: 'POST',
@@ -392,7 +395,7 @@ export default function HomePage() {
         body: JSON.stringify({
           action: 'start',
           callerId: currentUser.id,
-          receiverId: activeContactId,
+          receiverId,
           type,
         }),
       });
@@ -406,6 +409,21 @@ export default function HomePage() {
     } catch (err) {
       console.error('Call start error:', err);
     }
+  };
+
+  const handleOpenSenderProfile = async (senderId: string) => {
+    const foundContact = contacts.find((c) => c.id === senderId);
+    if (foundContact) {
+      setInspectedUser(foundContact);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/users?userId=${senderId}`);
+      const data = await res.json();
+      if (data.success && data.user) {
+        setInspectedUser(data.user);
+      }
+    } catch {}
   };
 
   const handleAnswerCall = async (callId: string, sdpAnswer: string) => {
@@ -598,6 +616,7 @@ export default function HomePage() {
             onOpenNewGroup={() => setShowNewGroup(true)}
             onOpenEditProfile={() => setShowEditProfile(true)}
             onOpenSyncRealWa={() => setShowSyncRealWa(true)}
+            onOpenProfile={(c) => setInspectedUser(c)}
             onLogout={handleLogout}
           />
         </div>
@@ -618,6 +637,8 @@ export default function HomePage() {
               onClearChat={handleClearChat}
               onBackMobile={() => setActiveContactId(null)}
               onOpenGroupInfo={() => setShowGroupInfo(true)}
+              onOpenProfile={(c) => setInspectedUser(c)}
+              onSenderClick={handleOpenSenderProfile}
               onStartCall={handleStartCall}
               theme={theme}
             />
@@ -653,6 +674,7 @@ export default function HomePage() {
           onClose={() => setShowGroupInfo(false)}
           onGroupUpdated={handleGroupUpdated}
           onLeaveGroupSuccess={handleLeaveGroup}
+          onOpenMemberProfile={(m) => setInspectedUser(m as any)}
         />
       )}
 
@@ -683,6 +705,23 @@ export default function HomePage() {
           onEndCall={handleEndCall}
           onAnswerCall={handleAnswerCall}
           onSendIce={handleSendIce}
+        />
+      )}
+
+      {/* Contact Profile Inspector Modal */}
+      {inspectedUser && currentUser && (
+        <UserProfileModal
+          user={inspectedUser}
+          currentUserId={currentUser.id}
+          onClose={() => setInspectedUser(null)}
+          onStartChat={(target) => {
+            handleStartChatWithUser(target as any);
+            setInspectedUser(null);
+          }}
+          onStartCall={(type, target) => {
+            handleStartCall(type, target.id);
+            setInspectedUser(null);
+          }}
         />
       )}
     </div>

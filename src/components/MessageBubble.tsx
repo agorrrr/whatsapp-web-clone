@@ -11,6 +11,7 @@ interface MessageBubbleProps {
   onReply?: (message: Message) => void;
   onReaction?: (messageId: string, emoji: string) => void;
   onImageClick?: (url: string) => void;
+  onSenderClick?: (senderId: string) => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -19,6 +20,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onReply,
   onReaction,
   onImageClick,
+  onSenderClick,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
@@ -139,7 +141,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         {/* Sender Name in group */}
         {!isMe && message.senderName && (
-          <div className="text-[12px] font-semibold text-[#128c7e] dark:text-[#25d366] mb-0.5">
+          <div
+            onClick={() => onSenderClick?.(message.senderId)}
+            className="text-[12px] font-semibold text-[#128c7e] dark:text-[#25d366] mb-0.5 cursor-pointer hover:underline"
+            title="Klik untuk lihat profil"
+          >
             {message.senderName}
           </div>
         )}
