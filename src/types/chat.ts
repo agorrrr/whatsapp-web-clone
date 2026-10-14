@@ -39,6 +39,7 @@ export interface Message {
     type: MessageType;
   };
   reaction?: string;
+  sentToRealWa?: boolean;
 }
 
 export interface ContactItem {

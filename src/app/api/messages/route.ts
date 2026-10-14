@@ -6,6 +6,7 @@ import {
   getChatRoomId,
   findUserById,
 } from '../../../server/db';
+import { sendWhatsAppMessage } from '../../../server/baileysManager';
 import { Message } from '../../../types/chat';
 
 export const dynamic = 'force-dynamic';
@@ -61,6 +62,35 @@ export async function POST(req: Request) {
       .toString()
       .padStart(2, '0')}`;
 
+    let sentToRealWa = false;
+
+    // If recipient is a real WhatsApp contact (starts with wa_), forward to WhatsApp
+    if (recipientId.startsWith('wa_') && text) {
+      // 1. Try local Gateway (http://127.0.0.1:3001/send)
+      try {
+        const gwRes = await fetch('http://127.0.0.1:3001/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: recipientId, text }),
+          signal: AbortSignal.timeout(2000),
+        });
+        const gwData = await gwRes.json();
+        if (gwData.success) {
+          sentToRealWa = true;
+        }
+      } catch {
+        // Gateway offline or running on another host; background queue will pick it up
+      }
+
+      // 2. Try in-memory Baileys socket if available on server
+      if (!sentToRealWa) {
+        try {
+          const sent = await sendWhatsAppMessage(recipientId.replace(/^wa_/, ''), text);
+          if (sent) sentToRealWa = true;
+        } catch {}
+      }
+    }
+
     const newMsg: Message = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       chatId: getChatRoomId(senderId, recipientId),
@@ -72,8 +102,9 @@ export async function POST(req: Request) {
       mediaUrl,
       audioDuration,
       timestamp: timeString,
-      status: 'delivered',
+      status: sentToRealWa ? 'sent' : 'delivered',
       replyTo,
+      sentToRealWa,
     };
 
     await saveMessage(newMsg);

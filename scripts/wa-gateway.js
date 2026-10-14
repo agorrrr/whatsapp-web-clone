@@ -275,6 +275,7 @@ async function startBaileys() {
           text,
           timestamp: timeString,
           status: 'read',
+          sentToRealWa: true,
         });
 
         await writeDb(db);
@@ -315,6 +316,68 @@ async function requestPairing(phone) {
   console.log(`[Gateway] ✅ KODE PAIRING UNTUK +${clean}: ${code}`);
   return code;
 }
+
+// Send outgoing WhatsApp message
+async function sendWaMessage(toJidOrPhone, text) {
+  if (!sock || connectionStatus !== 'connected') {
+    throw new Error('WhatsApp Gateway belum terhubung');
+  }
+
+  let jid = toJidOrPhone.replace(/^wa_/, '');
+  if (!jid.includes('@')) {
+    const clean = jid.replace(/[^0-9]/g, '');
+    jid = `${clean}@s.whatsapp.net`;
+  }
+
+  const sent = await sock.sendMessage(jid, { text });
+  console.log(`[Gateway] 🚀 Pesan WhatsApp berhasil dikirim ke ${jid}: "${text}"`);
+  return sent;
+}
+
+// Watch Gist / local database for any outgoing replies sent from web app (Vercel or local)
+let isCheckingQueue = false;
+async function checkOutgoingQueue() {
+  if (isCheckingQueue || !sock || connectionStatus !== 'connected') return;
+  isCheckingQueue = true;
+
+  try {
+    const db = await readDb();
+    const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
+    const targetUserId = targetUser?.id;
+
+    let hasUpdates = false;
+
+    for (const msg of db.messages) {
+      if (
+        msg.senderId === targetUserId &&
+        msg.recipientId &&
+        msg.recipientId.startsWith('wa_') &&
+        !msg.sentToRealWa
+      ) {
+        try {
+          await sendWaMessage(msg.recipientId, msg.text || '');
+          msg.sentToRealWa = true;
+          msg.status = 'sent';
+          hasUpdates = true;
+        } catch (err) {
+          console.error(`[Gateway] Gagal kirim pesan ke ${msg.recipientId}:`, err.message);
+        }
+      }
+    }
+
+    if (hasUpdates) {
+      await writeDb(db);
+      console.log('[Gateway] ✅ Status pesan terkirim diperbarui di database.');
+    }
+  } catch (err) {
+    // ignore
+  } finally {
+    isCheckingQueue = false;
+  }
+}
+
+// Check outgoing queue every 1.5 seconds
+setInterval(checkOutgoingQueue, 1500);
 
 // HTML Dashboard for easy browser connection
 function renderHtml() {
@@ -456,6 +519,29 @@ const server = http.createServer(async (req, res) => {
           res.writeHead(302, { Location: '/' });
           return res.end();
         }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (url.pathname === '/send' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body);
+        const { to, text } = parsed;
+        if (!to || !text) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, message: 'to dan text wajib ada' }));
+        }
+
+        const sent = await sendWaMessage(to, text);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, messageId: sent?.key?.id }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ success: false, message: err.message }));
