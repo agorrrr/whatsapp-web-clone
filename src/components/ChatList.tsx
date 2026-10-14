@@ -18,6 +18,7 @@ import {
   LogOut,
   User,
   Edit3,
+  UserPlus,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -99,6 +100,14 @@ export const ChatList: React.FC<ChatListProps> = ({
           <button
             onClick={onOpenNewChat}
             className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-[#00a884]"
+            title="Tambah Teman Baru (@username)"
+          >
+            <UserPlus className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={onOpenNewChat}
+            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-[#54656f] dark:text-[#aebac1] hover:text-[#00a884]"
             title="Mulai Chat Baru"
           >
             <MessageSquarePlus className="w-5 h-5" />
@@ -136,8 +145,8 @@ export const ChatList: React.FC<ChatListProps> = ({
                   }}
                   className="w-full text-left px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2"
                 >
-                  <MessageSquarePlus className="w-4 h-4 text-[#00a884]" />
-                  <span>Cari Kontak @Username</span>
+                  <UserPlus className="w-4 h-4 text-[#00a884]" />
+                  <span>Tambah Teman / Chat Baru</span>
                 </button>
                 <button
                   onClick={() => {
@@ -192,7 +201,7 @@ export const ChatList: React.FC<ChatListProps> = ({
 
       {/* Security Status Strip */}
       <div className="bg-[#f0f2f5]/60 dark:bg-[#182229] px-4 py-2 text-[12px] text-[#54656f] dark:text-[#8696a0] border-b border-[#e9edef] dark:border-[#222e35] flex items-center justify-between flex-shrink-0">
-        <span>🔒 Chat pribadi terenkripsi</span>
+        <span>?? Chat pribadi terenkripsi</span>
         <button
           onClick={onOpenNewChat}
           className="text-[11px] text-[#00a884] font-medium hover:underline"

@@ -255,20 +255,32 @@ export default function HomePage() {
   };
 
   const handleStartChatWithUser = (targetUser: UserAccount) => {
-    const existing = contacts.find((c) => c.id === targetUser.id);
-    if (!existing) {
-      const newContact: ContactItem = {
-        id: targetUser.id,
-        username: targetUser.username,
-        name: targetUser.name,
-        identifier: targetUser.identifier,
-        avatar: targetUser.avatar,
-        about: targetUser.about,
-        isOnline: targetUser.isOnline ?? true,
-        unreadCount: 0,
-      };
-      setContacts((prev) => [newContact, ...prev]);
-    }
+    setContacts((prev) => {
+      const existing = prev.find((c) => c.id === targetUser.id);
+      if (!existing) {
+        const newContact: ContactItem = {
+          id: targetUser.id,
+          username: targetUser.username,
+          name: targetUser.name,
+          identifier: targetUser.identifier,
+          avatar: targetUser.avatar,
+          about: targetUser.about,
+          isOnline: targetUser.isOnline ?? true,
+          unreadCount: 0,
+        };
+        return [newContact, ...prev];
+      }
+      return prev.map((c) =>
+        c.id === targetUser.id
+          ? {
+              ...c,
+              name: targetUser.name || c.name,
+              avatar: targetUser.avatar || c.avatar,
+              username: targetUser.username || c.username,
+            }
+          : c
+      );
+    });
     setActiveContactId(targetUser.id);
   };
 

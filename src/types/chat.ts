@@ -15,6 +15,7 @@ export interface UserAccount {
   isOnline?: boolean;
   lastSeen?: string;
   createdAt?: string;
+  friends?: string[]; // array of friend user IDs
 }
 
 export interface Message {
