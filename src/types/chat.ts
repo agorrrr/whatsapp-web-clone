@@ -67,3 +67,25 @@ export interface ContactItem {
 
 export type Contact = ContactItem;
 export type UserProfile = UserAccount;
+
+export interface GroupMember {
+  id: string;
+  name: string;
+  username?: string;
+  avatar: string;
+  about?: string;
+  isAdmin: boolean;
+  isOnline?: boolean;
+}
+
+export interface GroupChat {
+  id: string; // grp_xxx
+  name: string;
+  description?: string;
+  avatar: string;
+  createdBy: string;
+  admins: string[]; // user IDs
+  members: string[]; // user IDs
+  createdAt: string;
+  updatedAt?: string;
+}

@@ -19,6 +19,7 @@ import {
   User,
   Edit3,
   UserPlus,
+  Users,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -29,6 +30,7 @@ interface ChatListProps {
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
   onOpenNewChat: () => void;
+  onOpenNewGroup: () => void;
   onOpenEditProfile: () => void;
   onLogout: () => void;
 }
@@ -41,6 +43,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   theme,
   onToggleTheme,
   onOpenNewChat,
+  onOpenNewGroup,
   onOpenEditProfile,
   onLogout,
 }) => {
@@ -98,6 +101,14 @@ export const ChatList: React.FC<ChatListProps> = ({
           </button>
 
           <button
+            onClick={onOpenNewGroup}
+            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-[#54656f] dark:text-[#aebac1] hover:text-[#00a884]"
+            title="Buat Grup Baru"
+          >
+            <Users className="w-5 h-5" />
+          </button>
+
+          <button
             onClick={onOpenNewChat}
             className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-[#00a884]"
             title="Tambah Teman Baru (@username)"
@@ -128,6 +139,16 @@ export const ChatList: React.FC<ChatListProps> = ({
                   <p className="font-semibold text-xs text-[#00a884]">@{currentUser.username}</p>
                   <p className="text-[11px] text-[#8696a0] truncate">{currentUser.identifier}</p>
                 </div>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onOpenNewGroup();
+                  }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2"
+                >
+                  <Users className="w-4 h-4 text-[#00a884]" />
+                  <span>Grup Baru</span>
+                </button>
                 <button
                   onClick={() => {
                     setShowMenu(false);
@@ -259,11 +280,14 @@ export const ChatList: React.FC<ChatListProps> = ({
                 {/* Contact Info & Last Message */}
                 <div className="flex-1 min-w-0 pr-1">
                   <div className="flex items-center justify-between mb-0.5">
-                    <div className="flex items-center space-x-1 min-w-0">
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      {contact.isGroup && (
+                        <Users className="w-4 h-4 text-[#00a884] flex-shrink-0" />
+                      )}
                       <span className="font-semibold text-[15px] text-[#111b21] dark:text-[#e9edef] truncate">
                         {contact.name}
                       </span>
-                      {contact.username && (
+                      {contact.username && !contact.isGroup && (
                         <span className="text-xs text-[#00a884] font-medium flex-shrink-0">
                           @{contact.username}
                         </span>

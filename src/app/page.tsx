@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserAccount, ContactItem, Message, MessageType } from '../types/chat';
+import { UserAccount, ContactItem, Message, MessageType, GroupChat } from '../types/chat';
 import { ChatList } from '../components/ChatList';
 import { ChatWindow } from '../components/ChatWindow';
 import { EmptyChat } from '../components/EmptyChat';
 import { AuthModal } from '../components/AuthModal';
 import { NewPrivateChatModal } from '../components/NewPrivateChatModal';
 import { EditProfileModal } from '../components/EditProfileModal';
+import { NewGroupModal } from '../components/NewGroupModal';
+import { GroupInfoModal } from '../components/GroupInfoModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
 const SESSION_USER_KEY = 'wa_clone_active_user_v3';
@@ -23,6 +25,8 @@ export default function HomePage() {
 
   // Modals
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
@@ -96,11 +100,54 @@ export default function HomePage() {
     }
   }, [currentUser, activeContactId]);
 
+  // Fetch groups for current user
+  const fetchUserGroups = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch(`/api/groups?userId=${encodeURIComponent(currentUser.id)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.groups)) {
+        setContacts((prev) => {
+          let updated = [...prev];
+          data.groups.forEach((g: GroupChat) => {
+            const idx = updated.findIndex((c) => c.id === g.id);
+            if (idx !== -1) {
+              updated[idx] = {
+                ...updated[idx],
+                name: g.name,
+                avatar: g.avatar,
+                about: g.description,
+                isGroup: true,
+                participantsCount: g.members.length,
+              };
+            } else {
+              const groupContact: ContactItem = {
+                id: g.id,
+                name: g.name,
+                avatar: g.avatar,
+                about: g.description,
+                isGroup: true,
+                participantsCount: g.members.length,
+                isOnline: false,
+                unreadCount: 0,
+              };
+              updated.unshift(groupContact);
+            }
+          });
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.warn('Error fetching groups:', err);
+    }
+  }, [currentUser]);
+
   // Poll for messages every 2 seconds & sync across tabs
   useEffect(() => {
     if (!currentUser) return;
 
     fetchActiveMessages();
+    fetchUserGroups();
 
     // Broadcast channel for multi-window / multi-tab local sync
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -109,7 +156,10 @@ export default function HomePage() {
         const payload = event.data;
         if (
           payload &&
-          (payload.recipientId === currentUser.id || payload.senderId === currentUser.id)
+          (payload.recipientId === currentUser.id ||
+            payload.senderId === currentUser.id ||
+            payload.chatId?.startsWith('grp_') ||
+            payload.recipientId?.startsWith('grp_'))
         ) {
           fetchActiveMessages();
           updateContactLastMessage(payload);
@@ -120,43 +170,53 @@ export default function HomePage() {
 
     pollingTimerRef.current = setInterval(() => {
       fetchActiveMessages();
+      fetchUserGroups();
     }, 2000);
 
     return () => {
       if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
       channelRef.current?.close();
     };
-  }, [currentUser, activeContactId, fetchActiveMessages]);
+  }, [currentUser, activeContactId, fetchActiveMessages, fetchUserGroups]);
 
   const updateContactLastMessage = (msg: Message) => {
-    const otherUserId = msg.senderId === currentUser?.id ? msg.recipientId : msg.senderId;
-    if (!otherUserId) return;
+    const isGroupMsg = msg.chatId?.startsWith('grp_') || msg.recipientId?.startsWith('grp_');
+    const targetContactId = isGroupMsg
+      ? (msg.chatId?.startsWith('grp_') ? msg.chatId : msg.recipientId!)
+      : (msg.senderId === currentUser?.id ? msg.recipientId : msg.senderId);
+
+    if (!targetContactId) return;
 
     setContacts((prev) => {
-      const exists = prev.some((c) => c.id === otherUserId);
-      if (!exists && msg.senderId && msg.senderName) {
-        // Automatically add contact if new message received from a user
-        const newContact: ContactItem = {
-          id: otherUserId,
-          name: msg.senderName,
-          avatar:
-            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-          about: 'Kontak Ini Bukan Whatsapp',
-          isOnline: true,
-          unreadCount: otherUserId !== activeContactId ? 1 : 0,
-          lastMessage: {
-            text: msg.text || (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
-            timestamp: msg.timestamp,
-            type: msg.type,
-            senderId: msg.senderId,
-            status: msg.status,
-          },
-        };
-        return [newContact, ...prev];
+      const exists = prev.some((c) => c.id === targetContactId);
+      if (!exists) {
+        if (isGroupMsg) {
+          fetchUserGroups();
+          return prev;
+        }
+        if (msg.senderId && msg.senderName) {
+          const newContact: ContactItem = {
+            id: targetContactId,
+            name: msg.senderName,
+            avatar:
+              'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+            about: 'Kontak Ini Bukan Whatsapp',
+            isOnline: true,
+            unreadCount: targetContactId !== activeContactId ? 1 : 0,
+            lastMessage: {
+              text: msg.text || (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
+              timestamp: msg.timestamp,
+              type: msg.type,
+              senderId: msg.senderId,
+              status: msg.status,
+            },
+          };
+          return [newContact, ...prev];
+        }
       }
 
       return prev.map((c) =>
-        c.id === otherUserId
+        c.id === targetContactId
           ? {
               ...c,
               lastMessage: {
@@ -167,7 +227,7 @@ export default function HomePage() {
                 status: msg.status,
               },
               unreadCount:
-                msg.senderId !== currentUser?.id && otherUserId !== activeContactId
+                msg.senderId !== currentUser?.id && targetContactId !== activeContactId
                   ? c.unreadCount + 1
                   : c.unreadCount,
             }
@@ -284,6 +344,44 @@ export default function HomePage() {
     setActiveContactId(targetUser.id);
   };
 
+  const handleGroupCreated = (newGroup: GroupChat) => {
+    const groupContact: ContactItem = {
+      id: newGroup.id,
+      name: newGroup.name,
+      avatar: newGroup.avatar,
+      about: newGroup.description,
+      isGroup: true,
+      participantsCount: newGroup.members.length,
+      isOnline: false,
+      unreadCount: 0,
+    };
+    setContacts((prev) => [groupContact, ...prev.filter((c) => c.id !== newGroup.id)]);
+    setActiveContactId(newGroup.id);
+  };
+
+  const handleGroupUpdated = (updatedGroup: GroupChat) => {
+    setContacts((prev) =>
+      prev.map((c) =>
+        c.id === updatedGroup.id
+          ? {
+              ...c,
+              name: updatedGroup.name,
+              avatar: updatedGroup.avatar,
+              about: updatedGroup.description,
+              participantsCount: updatedGroup.members.length,
+            }
+          : c
+      )
+    );
+  };
+
+  const handleLeaveGroup = (groupId: string) => {
+    setContacts((prev) => prev.filter((c) => c.id !== groupId));
+    if (activeContactId === groupId) {
+      setActiveContactId(null);
+    }
+  };
+
   if (!mounted) {
     return (
       <div className="h-[100dvh] w-screen flex items-center justify-center bg-[#111b21] text-white">
@@ -328,6 +426,7 @@ export default function HomePage() {
             theme={theme}
             onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             onOpenNewChat={() => setShowNewChat(true)}
+            onOpenNewGroup={() => setShowNewGroup(true)}
             onOpenEditProfile={() => setShowEditProfile(true)}
             onLogout={handleLogout}
           />
@@ -348,6 +447,7 @@ export default function HomePage() {
               onReaction={handleReaction}
               onClearChat={handleClearChat}
               onBackMobile={() => setActiveContactId(null)}
+              onOpenGroupInfo={() => setShowGroupInfo(true)}
               theme={theme}
             />
           ) : (
@@ -362,6 +462,26 @@ export default function HomePage() {
           currentUserId={currentUser.id}
           onSelectUser={handleStartChatWithUser}
           onClose={() => setShowNewChat(false)}
+        />
+      )}
+
+      {/* New Group Modal */}
+      {showNewGroup && (
+        <NewGroupModal
+          currentUserId={currentUser.id}
+          onSuccess={handleGroupCreated}
+          onClose={() => setShowNewGroup(false)}
+        />
+      )}
+
+      {/* Group Info Modal */}
+      {showGroupInfo && activeContact?.isGroup && (
+        <GroupInfoModal
+          groupId={activeContact.id}
+          currentUserId={currentUser.id}
+          onClose={() => setShowGroupInfo(false)}
+          onGroupUpdated={handleGroupUpdated}
+          onLeaveGroupSuccess={handleLeaveGroup}
         />
       )}
 

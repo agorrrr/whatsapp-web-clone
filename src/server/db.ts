@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { UserAccount, Message } from '../types/chat';
+import { UserAccount, Message, GroupChat, GroupMember } from '../types/chat';
 
 // Cloud Gist database configuration for persistent Vercel serverless execution
 const GIST_ID = process.env.GIST_ID || '9d6bf54cf48dffbca905eff3a3a4fa45';
@@ -12,11 +12,13 @@ const GITHUB_TOKEN =
 interface DatabaseSchema {
   users: UserAccount[];
   messages: Message[];
+  groups?: GroupChat[];
 }
 
 let inMemoryCache: DatabaseSchema = {
   users: [],
   messages: [],
+  groups: [],
 };
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 1000; // 1 second cache
@@ -58,6 +60,7 @@ export async function readDb(): Promise<DatabaseSchema> {
           inMemoryCache = {
             users: Array.isArray(parsed.users) ? parsed.users : [],
             messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+            groups: Array.isArray(parsed.groups) ? parsed.groups : [],
           };
           lastFetchTime = now;
           return inMemoryCache;
@@ -76,6 +79,7 @@ export async function readDb(): Promise<DatabaseSchema> {
       inMemoryCache = {
         users: Array.isArray(parsed.users) ? parsed.users : [],
         messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+        groups: Array.isArray(parsed.groups) ? parsed.groups : [],
       };
       return inMemoryCache;
     }
@@ -258,6 +262,8 @@ export async function addFriend(
 
 // Message methods
 export function getChatRoomId(userA: string, userB: string): string {
+  if (userB.startsWith('grp_')) return userB;
+  if (userA.startsWith('grp_')) return userA;
   return [userA, userB].sort().join('__');
 }
 
@@ -276,5 +282,166 @@ export async function getMessagesBetween(userA: string, userB: string): Promise<
 
 export async function getMessagesForUser(userId: string): Promise<Message[]> {
   const db = await readDb();
-  return db.messages.filter((m) => m.recipientId === userId || m.senderId === userId);
+  const userGroupIds = (db.groups || []).filter((g) => g.members.includes(userId)).map((g) => g.id);
+  return db.messages.filter((m) => m.recipientId === userId || m.senderId === userId || userGroupIds.includes(m.chatId));
 }
+
+// Group methods
+export async function createGroup(data: {
+  name: string;
+  description?: string;
+  avatar?: string;
+  creatorId: string;
+  memberIds: string[];
+}): Promise<GroupChat> {
+  const db = await readDb();
+  if (!db.groups) db.groups = [];
+
+  const uniqueMembers = Array.from(new Set([data.creatorId, ...data.memberIds]));
+  const defaultAvatar =
+    data.avatar ||
+    'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80';
+
+  const newGroup: GroupChat = {
+    id: `grp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: data.name.trim(),
+    description: data.description?.trim() || 'Grup chat Ini Bukan Whatsapp',
+    avatar: defaultAvatar,
+    createdBy: data.creatorId,
+    admins: [data.creatorId],
+    members: uniqueMembers,
+    createdAt: new Date().toISOString(),
+  };
+
+  db.groups.push(newGroup);
+  await writeDb(db);
+  return newGroup;
+}
+
+export async function getGroupById(groupId: string): Promise<GroupChat | null> {
+  const db = await readDb();
+  return (db.groups || []).find((g) => g.id === groupId) || null;
+}
+
+export async function getUserGroups(userId: string): Promise<GroupChat[]> {
+  const db = await readDb();
+  return (db.groups || []).filter((g) => g.members.includes(userId));
+}
+
+export async function updateGroupInfo(
+  groupId: string,
+  userId: string,
+  updates: { name?: string; description?: string; avatar?: string }
+): Promise<GroupChat | null> {
+  const db = await readDb();
+  const group = (db.groups || []).find((g) => g.id === groupId);
+  if (!group) return null;
+  if (!group.admins.includes(userId)) {
+    throw new Error('Hanya admin grup yang dapat mengubah info grup');
+  }
+
+  if (updates.name) group.name = updates.name.trim();
+  if (updates.description !== undefined) group.description = updates.description.trim();
+  if (updates.avatar) group.avatar = updates.avatar.trim();
+  group.updatedAt = new Date().toISOString();
+
+  await writeDb(db);
+  return group;
+}
+
+export async function addGroupMembers(
+  groupId: string,
+  userId: string,
+  newMemberIds: string[]
+): Promise<GroupChat | null> {
+  const db = await readDb();
+  const group = (db.groups || []).find((g) => g.id === groupId);
+  if (!group) return null;
+  if (!group.admins.includes(userId)) {
+    throw new Error('Hanya admin grup yang dapat menambah anggota');
+  }
+
+  const set = new Set([...group.members, ...newMemberIds]);
+  group.members = Array.from(set);
+  group.updatedAt = new Date().toISOString();
+
+  await writeDb(db);
+  return group;
+}
+
+export async function removeGroupMember(
+  groupId: string,
+  userId: string,
+  targetMemberId: string
+): Promise<GroupChat | null> {
+  const db = await readDb();
+  const group = (db.groups || []).find((g) => g.id === groupId);
+  if (!group) return null;
+
+  const isSelf = userId === targetMemberId;
+  const isAdmin = group.admins.includes(userId);
+
+  if (!isSelf && !isAdmin) {
+    throw new Error('Hanya admin grup yang dapat mengeluarkan anggota');
+  }
+
+  group.members = group.members.filter((id) => id !== targetMemberId);
+  group.admins = group.admins.filter((id) => id !== targetMemberId);
+
+  if (group.admins.length === 0 && group.members.length > 0) {
+    group.admins.push(group.members[0]);
+  }
+
+  group.updatedAt = new Date().toISOString();
+  await writeDb(db);
+  return group;
+}
+
+export async function toggleGroupAdmin(
+  groupId: string,
+  userId: string,
+  targetMemberId: string
+): Promise<GroupChat | null> {
+  const db = await readDb();
+  const group = (db.groups || []).find((g) => g.id === groupId);
+  if (!group) return null;
+
+  if (!group.admins.includes(userId)) {
+    throw new Error('Hanya admin grup yang dapat mengubah status admin');
+  }
+
+  if (group.admins.includes(targetMemberId)) {
+    if (group.admins.length === 1) {
+      throw new Error('Grup harus memiliki minimal satu admin');
+    }
+    group.admins = group.admins.filter((id) => id !== targetMemberId);
+  } else {
+    group.admins.push(targetMemberId);
+  }
+
+  group.updatedAt = new Date().toISOString();
+  await writeDb(db);
+  return group;
+}
+
+export async function getGroupMembersDetails(groupId: string): Promise<GroupMember[]> {
+  const db = await readDb();
+  const group = (db.groups || []).find((g) => g.id === groupId);
+  if (!group) return [];
+
+  return group.members.map((memberId) => {
+    const user = db.users.find((u) => u.id === memberId);
+    return {
+      id: memberId,
+      name: user?.name || 'Pengguna',
+      username: user?.username,
+      avatar:
+        user?.avatar ||
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      about: user?.about || 'Ada di Ini Bukan Whatsapp',
+      isAdmin: group.admins.includes(memberId),
+      isOnline: user?.isOnline ?? true,
+    };
+  });
+}
+
