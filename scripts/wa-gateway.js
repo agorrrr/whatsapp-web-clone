@@ -134,6 +134,15 @@ async function startBaileys() {
   const authDir = getAuthFolder();
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
+  // If credentials are stale/unregistered, clean up auth folder to allow fresh scan/pairing
+  if (state.creds && state.creds.registered === false && state.creds.me) {
+    console.log('[Gateway] Sesi kedaluwarsa di WhatsApp (registered: false). Membersihkan kredensial lama...');
+    try {
+      if (fs.existsSync(authDir)) fs.rmSync(authDir, { recursive: true, force: true });
+    } catch {}
+    return startBaileys();
+  }
+
   const { version } = await fetchLatestBaileysVersion().catch(() => ({
     version: [2, 3000, 1043857760],
   }));
@@ -242,10 +251,32 @@ async function startBaileys() {
         } catch {}
         setTimeout(() => startBaileys(), 1500);
       } else if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
-        connectionStatus = 'conflict';
-        console.warn('\n[Gateway] ⚠️ Sesi WhatsApp digantikan oleh sesi/perangkat lain (status 440: connectionReplaced).');
-        console.warn('[Gateway] Reconnect otomatis dihentikan agar tidak terjadi perang koneksi.');
-        console.warn('[Gateway] Untuk menghubungkan ulang, buka http://localhost:3001/reconnect\n');
+        const authDir = getAuthFolder();
+        const credsFile = path.join(authDir, 'creds.json');
+        let isRegistered = false;
+        try {
+          if (fs.existsSync(credsFile)) {
+            const parsed = JSON.parse(fs.readFileSync(credsFile, 'utf-8'));
+            isRegistered = Boolean(parsed.registered);
+          }
+        } catch {}
+
+        if (!isRegistered) {
+          console.warn('[Gateway] Sesi WhatsApp telah dicabut dari HP (registered: false). Reset auth untuk scan/pairing baru...');
+          connectionStatus = 'disconnected';
+          connectedUser = null;
+          qrCodeDataUrl = null;
+          currentPairingCode = null;
+          try {
+            if (fs.existsSync(authDir)) fs.rmSync(authDir, { recursive: true, force: true });
+          } catch {}
+          setTimeout(() => startBaileys(), 1500);
+        } else {
+          connectionStatus = 'conflict';
+          console.warn('\n[Gateway] ⚠️ Sesi WhatsApp digantikan oleh sesi/perangkat lain (status 440: connectionReplaced).');
+          console.warn('[Gateway] Reconnect otomatis dihentikan agar tidak terjadi perang koneksi.');
+          console.warn('[Gateway] Untuk menghubungkan ulang, buka http://localhost:3001/reconnect\n');
+        }
       } else if (shouldReconnect) {
         const delay = statusCode === DisconnectReason.restartRequired ? 200 : 3000;
         console.log(`[Gateway] Koneksi terputus (status ${statusCode}), reconnecting dalam ${delay}ms...`);
