@@ -1,6 +1,28 @@
 export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read';
 
-export type MessageType = 'text' | 'image' | 'audio' | 'sticker' | 'document';
+export type MessageType = 'text' | 'image' | 'audio' | 'sticker' | 'document' | 'call';
+
+export type CallType = 'audio' | 'video';
+export type CallStatus = 'ringing' | 'connected' | 'ended' | 'rejected' | 'busy';
+
+export interface CallSession {
+  id: string;
+  callerId: string;
+  callerName: string;
+  callerAvatar: string;
+  receiverId: string;
+  receiverName: string;
+  receiverAvatar: string;
+  type: CallType;
+  status: CallStatus;
+  startedAt?: number;
+  duration?: number;
+  sdpOffer?: string;
+  sdpAnswer?: string;
+  callerIce?: any[];
+  receiverIce?: any[];
+  updatedAt: number;
+}
 
 export interface UserAccount {
   id: string; // unique user id e.g. usr_123456
@@ -30,6 +52,11 @@ export interface Message {
   fileName?: string;
   fileSize?: string;
   audioDuration?: number;
+  callInfo?: {
+    type: CallType;
+    status: 'missed' | 'completed' | 'declined';
+    duration?: number;
+  };
   timestamp: string;
   status: MessageStatus;
   replyTo?: {

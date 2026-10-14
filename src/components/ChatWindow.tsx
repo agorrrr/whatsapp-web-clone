@@ -19,6 +19,8 @@ import {
   Camera,
   X,
   Lock,
+  Phone,
+  Video,
 } from 'lucide-react';
 
 interface ChatWindowProps {
@@ -36,6 +38,7 @@ interface ChatWindowProps {
   onClearChat: () => void;
   onBackMobile?: () => void;
   onOpenGroupInfo?: () => void;
+  onStartCall?: (type: 'audio' | 'video') => void;
   theme: 'dark' | 'light';
 }
 
@@ -48,6 +51,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onClearChat,
   onBackMobile,
   onOpenGroupInfo,
+  onStartCall,
   theme,
 }) => {
   const [inputText, setInputText] = useState('');
@@ -188,8 +192,27 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           </div>
         </div>
 
-        {/* Right menu (NO calls/video calls as required) */}
-        <div className="flex items-center space-x-3 text-[#54656f] dark:text-[#aebac1] relative">
+        {/* Right menu actions */}
+        <div className="flex items-center space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] relative">
+          {!contact.isGroup && onStartCall && (
+            <>
+              <button
+                onClick={() => onStartCall('video')}
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                title="Panggilan video"
+              >
+                <Video className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => onStartCall('audio')}
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                title="Panggilan suara"
+              >
+                <Phone className="w-5 h-5" />
+              </button>
+            </>
+          )}
+
           <button className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors" title="Cari di chat">
             <Search className="w-5 h-5" />
           </button>

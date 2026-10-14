@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserAccount, ContactItem, Message, MessageType, GroupChat } from '../types/chat';
+import { UserAccount, ContactItem, Message, MessageType, GroupChat, CallSession, CallType } from '../types/chat';
 import { ChatList } from '../components/ChatList';
 import { ChatWindow } from '../components/ChatWindow';
 import { EmptyChat } from '../components/EmptyChat';
@@ -11,6 +11,7 @@ import { EditProfileModal } from '../components/EditProfileModal';
 import { NewGroupModal } from '../components/NewGroupModal';
 import { GroupInfoModal } from '../components/GroupInfoModal';
 import { SyncRealWaModal } from '../components/SyncRealWaModal';
+import { CallModal } from '../components/CallModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
 const SESSION_USER_KEY = 'wa_clone_active_user_v3';
@@ -23,6 +24,7 @@ export default function HomePage() {
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [activeCall, setActiveCall] = useState<CallSession | null>(null);
 
   // Modals
   const [showNewChat, setShowNewChat] = useState(false);
@@ -250,6 +252,27 @@ export default function HomePage() {
         return updated;
       });
 
+      // 4. Update active call status
+      if (data.activeCall) {
+        setActiveCall((prev) => {
+          if (
+            !prev ||
+            prev.id !== data.activeCall.id ||
+            prev.status !== data.activeCall.status ||
+            prev.sdpAnswer !== data.activeCall.sdpAnswer
+          ) {
+            return data.activeCall;
+          }
+          return prev;
+        });
+      } else {
+        setActiveCall((prev) =>
+          prev?.status === 'ringing' || prev?.status === 'ended' || prev?.status === 'rejected'
+            ? null
+            : prev
+        );
+      }
+
       initialLoadDoneRef.current = true;
     } catch (err) {
       console.warn('Realtime sync error:', err);
@@ -267,7 +290,12 @@ export default function HomePage() {
     // Broadcast channel for multi-tab sync
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const bc = new BroadcastChannel('wa_private_chat_sync');
-      bc.onmessage = () => {
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'call_update' && event.data.call) {
+          setActiveCall(event.data.call);
+        } else if (event.data?.type === 'call_end') {
+          setActiveCall(null);
+        }
         syncRealtimeData();
       };
       channelRef.current = bc;
@@ -353,6 +381,88 @@ export default function HomePage() {
 
   const handleClearChat = () => {
     setMessages([]);
+  };
+
+  const handleStartCall = async (type: CallType) => {
+    if (!currentUser || !activeContactId) return;
+    try {
+      const res = await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'start',
+          callerId: currentUser.id,
+          receiverId: activeContactId,
+          type,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.call) {
+        setActiveCall(data.call);
+        channelRef.current?.postMessage({ type: 'call_update', call: data.call });
+      } else {
+        alert(data.message || 'Gagal memulai panggilan');
+      }
+    } catch (err) {
+      console.error('Call start error:', err);
+    }
+  };
+
+  const handleAnswerCall = async (callId: string, sdpAnswer: string) => {
+    try {
+      const res = await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'answer',
+          callId,
+          sdpAnswer,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.call) {
+        setActiveCall(data.call);
+        channelRef.current?.postMessage({ type: 'call_update', call: data.call });
+      }
+    } catch (err) {
+      console.error('Call answer error:', err);
+    }
+  };
+
+  const handleEndCall = async (callId: string, reason: 'ended' | 'rejected' = 'ended') => {
+    try {
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'end',
+          callId,
+          reason,
+        }),
+      });
+      setActiveCall(null);
+      channelRef.current?.postMessage({ type: 'call_end', callId });
+      syncRealtimeData();
+    } catch (err) {
+      console.error('Call end error:', err);
+      setActiveCall(null);
+    }
+  };
+
+  const handleSendIce = async (callId: string, candidate: any) => {
+    if (!currentUser) return;
+    try {
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'ice',
+          callId,
+          candidate,
+          fromUserId: currentUser.id,
+        }),
+      });
+    } catch {}
   };
 
   const handleLoginSuccess = (user: UserAccount) => {
@@ -508,6 +618,7 @@ export default function HomePage() {
               onClearChat={handleClearChat}
               onBackMobile={() => setActiveContactId(null)}
               onOpenGroupInfo={() => setShowGroupInfo(true)}
+              onStartCall={handleStartCall}
               theme={theme}
             />
           ) : (
@@ -561,6 +672,17 @@ export default function HomePage() {
           currentUser={currentUser}
           onProfileSynced={handleUpdateProfileSuccess}
           onClose={() => setShowSyncRealWa(false)}
+        />
+      )}
+
+      {/* Real-time WebRTC Call Modal */}
+      {activeCall && currentUser && (
+        <CallModal
+          call={activeCall}
+          currentUserId={currentUser.id}
+          onEndCall={handleEndCall}
+          onAnswerCall={handleAnswerCall}
+          onSendIce={handleSendIce}
         />
       )}
     </div>

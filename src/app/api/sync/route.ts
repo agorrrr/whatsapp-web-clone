@@ -5,6 +5,7 @@ import {
   getMessagesForUser,
   getUserGroups,
 } from '../../../server/db';
+import { getActiveCallForUser } from '../../../server/callManager';
 import { UserAccount } from '../../../types/chat';
 
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,7 @@ export async function GET(req: Request) {
         allUserMessages,
         senders,
         groups,
+        activeCall: getActiveCallForUser(userId),
         serverTime: Date.now(),
       },
       {

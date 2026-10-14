@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Message } from '../types/chat';
-import { Check, CheckCheck, Play, Pause, FileText, CornerUpLeft, Smile } from 'lucide-react';
+import { Check, CheckCheck, Play, Pause, FileText, CornerUpLeft, Smile, Phone, PhoneMissed, Video, VideoOff } from 'lucide-react';
 import { createDemoAudioDataUrl } from '../utils/audio';
 
 interface MessageBubbleProps {
@@ -207,6 +207,43 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             <div className="flex-1 overflow-hidden">
               <div className="font-medium text-xs truncate">{message.fileName || 'Dokumen.pdf'}</div>
               <div className="text-[10px] text-[#667781] dark:text-[#8696a0]">{message.fileSize || '1.2 MB'}</div>
+            </div>
+          </div>
+        )}
+
+        {/* CALL MESSAGE EVENT */}
+        {message.type === 'call' && (
+          <div className="flex items-center space-x-3 p-1.5 pr-14 select-none">
+            <div
+              className={`p-2.5 rounded-full ${
+                message.callInfo?.status === 'missed' || message.callInfo?.status === 'declined'
+                  ? 'bg-red-500/15 text-red-500'
+                  : 'bg-[#00a884]/15 text-[#00a884]'
+              }`}
+            >
+              {message.callInfo?.type === 'video' ? (
+                message.callInfo?.status === 'missed' ? (
+                  <VideoOff className="w-5 h-5" />
+                ) : (
+                  <Video className="w-5 h-5" />
+                )
+              ) : message.callInfo?.status === 'missed' ? (
+                <PhoneMissed className="w-5 h-5" />
+              ) : (
+                <Phone className="w-5 h-5" />
+              )}
+            </div>
+            <div>
+              <div className="font-medium text-sm text-[#111b21] dark:text-[#e9edef]">
+                {message.text}
+              </div>
+              <div className="text-[11px] text-[#667781] dark:text-[#8696a0]">
+                {message.callInfo?.status === 'completed'
+                  ? 'Panggilan selesai'
+                  : message.callInfo?.status === 'declined'
+                  ? 'Panggilan ditolak'
+                  : 'Panggilan tak terjawab'}
+              </div>
             </div>
           </div>
         )}
