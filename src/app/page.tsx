@@ -261,7 +261,10 @@ export default function HomePage() {
             !prev ||
             prev.id !== data.activeCall.id ||
             prev.status !== data.activeCall.status ||
-            prev.sdpAnswer !== data.activeCall.sdpAnswer
+            prev.sdpOffer !== data.activeCall.sdpOffer ||
+            prev.sdpAnswer !== data.activeCall.sdpAnswer ||
+            (prev.callerIce?.length || 0) !== (data.activeCall.callerIce?.length || 0) ||
+            (prev.receiverIce?.length || 0) !== (data.activeCall.receiverIce?.length || 0)
           ) {
             return data.activeCall;
           }
@@ -295,6 +298,32 @@ export default function HomePage() {
       bc.onmessage = (event) => {
         if (event.data?.type === 'call_update' && event.data.call) {
           setActiveCall(event.data.call);
+        } else if (event.data?.type === 'call_offer') {
+          setActiveCall((prev) =>
+            prev && prev.id === event.data.callId
+              ? { ...prev, sdpOffer: event.data.sdpOffer }
+              : prev
+          );
+        } else if (event.data?.type === 'call_answer') {
+          setActiveCall((prev) =>
+            prev && prev.id === event.data.callId
+              ? { ...prev, sdpAnswer: event.data.sdpAnswer, status: 'connected' }
+              : prev
+          );
+        } else if (event.data?.type === 'call_ice') {
+          setActiveCall((prev) => {
+            if (!prev || prev.id !== event.data.callId) return prev;
+            const isFromCaller = event.data.fromUserId === prev.callerId;
+            return {
+              ...prev,
+              callerIce: isFromCaller
+                ? [...(prev.callerIce || []), event.data.candidate]
+                : prev.callerIce,
+              receiverIce: !isFromCaller
+                ? [...(prev.receiverIce || []), event.data.candidate]
+                : prev.receiverIce,
+            };
+          });
         } else if (event.data?.type === 'call_end') {
           setActiveCall(null);
         }
@@ -467,6 +496,19 @@ export default function HomePage() {
     }
   };
 
+  const handleSendOffer = async (callId: string, sdpOffer: string) => {
+    try {
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'offer', callId, sdpOffer }),
+      });
+      channelRef.current?.postMessage({ type: 'call_offer', callId, sdpOffer });
+    } catch (err) {
+      console.error('Send offer error:', err);
+    }
+  };
+
   const handleSendIce = async (callId: string, candidate: any) => {
     if (!currentUser) return;
     try {
@@ -479,6 +521,12 @@ export default function HomePage() {
           candidate,
           fromUserId: currentUser.id,
         }),
+      });
+      channelRef.current?.postMessage({
+        type: 'call_ice',
+        callId,
+        candidate,
+        fromUserId: currentUser.id,
       });
     } catch {}
   };
@@ -703,6 +751,7 @@ export default function HomePage() {
           call={activeCall}
           currentUserId={currentUser.id}
           onEndCall={handleEndCall}
+          onSendOffer={handleSendOffer}
           onAnswerCall={handleAnswerCall}
           onSendIce={handleSendIce}
         />

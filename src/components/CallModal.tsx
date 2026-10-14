@@ -19,6 +19,7 @@ interface CallModalProps {
   call: CallSession;
   currentUserId: string;
   onEndCall: (callId: string, reason?: 'ended' | 'rejected') => void;
+  onSendOffer?: (callId: string, sdpOffer: string) => void;
   onAnswerCall: (callId: string, sdpAnswer: string) => void;
   onSendIce: (callId: string, candidate: any) => void;
 }
@@ -27,6 +28,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   call,
   currentUserId,
   onEndCall,
+  onSendOffer,
   onAnswerCall,
   onSendIce,
 }) => {
@@ -40,13 +42,15 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [callDuration, setCallDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasAnswered, setHasAnswered] = useState(isCaller || call.status === 'connected');
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteMediaRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingCandidatesRef = useRef<any[]>([]);
 
   // Synthesize WhatsApp-style ringing audio using native Web Audio API
   const startRingtone = (mode: 'outgoing' | 'incoming') => {
@@ -57,7 +61,6 @@ export const CallModal: React.FC<CallModalProps> = ({
       audioContextRef.current = ctx;
 
       if (mode === 'outgoing') {
-        // WhatsApp outgoing soft dual tone (400Hz + 450Hz) beep... beep...
         const playBeep = () => {
           if (ctx.state === 'closed') return;
           const osc1 = ctx.createOscillator();
@@ -82,8 +85,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         playBeep();
         ringtoneIntervalRef.current = setInterval(playBeep, 3000);
       } else {
-        // WhatsApp incoming playful chime sequence
-        const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+        const notes = [523.25, 659.25, 783.99, 1046.5];
         const playChime = () => {
           if (ctx.state === 'closed') return;
           notes.forEach((freq, idx) => {
@@ -123,7 +125,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   };
 
-  // Ringtone handling
+  // Ringtone control
   useEffect(() => {
     if (call.status === 'ringing') {
       startRingtone(isCaller ? 'outgoing' : 'incoming');
@@ -142,14 +144,32 @@ export const CallModal: React.FC<CallModalProps> = ({
     return () => clearInterval(interval);
   }, [call.status]);
 
-  // WebRTC initialization
+  // Drain pending ICE candidates once remote description is set
+  const drainPendingIceCandidates = async (pc: RTCPeerConnection) => {
+    while (pendingCandidatesRef.current.length > 0) {
+      const cand = pendingCandidatesRef.current.shift();
+      if (cand) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn('[WebRTC] Error adding queued ICE:', e);
+        }
+      }
+    }
+  };
+
+  // Initialize WebRTC
   useEffect(() => {
     let isMounted = true;
 
     async function initWebRTC() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: call.type === 'video' ? { width: { ideal: 640 }, height: { ideal: 480 } } : false,
         });
 
@@ -159,41 +179,66 @@ export const CallModal: React.FC<CallModalProps> = ({
         }
 
         localStreamRef.current = stream;
+
+        // Local video preview
         if (localVideoRef.current && call.type === 'video') {
           localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play().catch(() => {});
         }
 
         const pc = new RTCPeerConnection({
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
             { urls: 'stun:global.stun.twilio.com:3478' },
           ],
         });
         peerConnectionRef.current = pc;
 
+        // Add local tracks to peer connection
         stream.getTracks().forEach((track) => {
           pc.addTrack(track, stream);
         });
 
+        // Remote track handler
         pc.ontrack = (event) => {
-          if (remoteVideoRef.current && event.streams[0]) {
-            remoteVideoRef.current.srcObject = event.streams[0];
+          let remoteStream = event.streams[0];
+          if (!remoteStream) {
+            remoteStream = new MediaStream([event.track]);
+          }
+
+          if (event.track.kind === 'video') {
+            setHasRemoteVideo(true);
+          }
+
+          if (remoteMediaRef.current) {
+            remoteMediaRef.current.srcObject = remoteStream;
+            remoteMediaRef.current.play().catch((err) => {
+              console.warn('[WebRTC] Remote media play error:', err);
+            });
           }
         };
 
+        // ICE candidate handler
         pc.onicecandidate = (event) => {
           if (event.candidate) {
-            onSendIce(call.id, event.candidate);
+            const cand = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
+            onSendIce(call.id, cand);
           }
         };
 
-        // If caller, produce SDP offer
+        // If caller, create SDP Offer and send to server & receiver
         if (isCaller) {
-          const offer = await pc.createOffer();
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: call.type === 'video',
+          });
           await pc.setLocalDescription(offer);
+          onSendOffer?.(call.id, offer.sdp || '');
         }
       } catch (err: any) {
-        console.warn('[WebRTC] Media permission or connection notice:', err.message);
+        console.error('[WebRTC] Media permission error:', err);
       }
     }
 
@@ -211,44 +256,89 @@ export const CallModal: React.FC<CallModalProps> = ({
     };
   }, []);
 
-  // Handle incoming SDP Answer or ICE candidates
+  // Bind local video element whenever it mounts or re-renders
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current && call.type === 'video' && !isVideoDisabled) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [call.type, isVideoDisabled, hasAnswered, call.status]);
+
+  // Handle incoming SDP Answer on Caller side
   useEffect(() => {
     const pc = peerConnectionRef.current;
     if (!pc) return;
 
-    if (isCaller && call.sdpAnswer && pc.signalingState === 'have-local-offer') {
-      try {
-        pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: call.sdpAnswer }));
-      } catch {}
+    if (
+      isCaller &&
+      call.sdpAnswer &&
+      call.sdpAnswer !== 'simulated_answer' &&
+      pc.signalingState === 'have-local-offer'
+    ) {
+      pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: call.sdpAnswer }))
+        .then(() => {
+          drainPendingIceCandidates(pc);
+        })
+        .catch((err) => {
+          console.error('[WebRTC] Error setting caller remote answer:', err);
+        });
     }
+  }, [call.sdpAnswer, isCaller]);
 
-    // Add remote ICE candidates
-    const remoteIce = isCaller ? call.receiverIce : call.callerIce;
-    if (Array.isArray(remoteIce) && pc.remoteDescription) {
-      remoteIce.forEach((candidate) => {
-        try {
-          pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch {}
+  // Handle incoming ICE candidates
+  useEffect(() => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+
+    const remoteCandidates = isCaller ? call.receiverIce : call.callerIce;
+    if (Array.isArray(remoteCandidates)) {
+      remoteCandidates.forEach((cand) => {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          try {
+            pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {}
+        } else {
+          pendingCandidatesRef.current.push(cand);
+        }
       });
     }
-  }, [call.sdpAnswer, call.callerIce, call.receiverIce, isCaller]);
+  }, [call.callerIce, call.receiverIce, isCaller]);
 
-  // Answer call handler (receiver side)
+  // Accept call (Receiver side)
   const handleAcceptCall = async () => {
     stopRingtone();
     setHasAnswered(true);
 
     const pc = peerConnectionRef.current;
-    if (pc && call.sdpOffer) {
+    if (!pc) return;
+
+    let sdpOffer = call.sdpOffer;
+
+    // If sdpOffer is not yet in state, fetch latest from server
+    if (!sdpOffer) {
       try {
-        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: call.sdpOffer }));
+        const res = await fetch(`/api/calls?callId=${encodeURIComponent(call.id)}`);
+        const data = await res.json();
+        if (data?.call?.sdpOffer) {
+          sdpOffer = data.call.sdpOffer;
+        }
+      } catch {}
+    }
+
+    if (sdpOffer) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: sdpOffer }));
+        await drainPendingIceCandidates(pc);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         onAnswerCall(call.id, answer.sdp || '');
-      } catch {
+      } catch (err) {
+        console.error('[WebRTC] Error answering call:', err);
         onAnswerCall(call.id, 'simulated_answer');
       }
     } else {
+      console.warn('[WebRTC] No sdpOffer found on accept, signaling connected fallback');
       onAnswerCall(call.id, 'simulated_answer');
     }
   };
@@ -277,9 +367,9 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   // Toggle Speaker
   const toggleSpeaker = () => {
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.muted = !remoteVideoRef.current.muted;
-      setIsSpeakerMuted(remoteVideoRef.current.muted);
+    if (remoteMediaRef.current) {
+      remoteMediaRef.current.muted = !remoteMediaRef.current.muted;
+      setIsSpeakerMuted(remoteMediaRef.current.muted);
     }
   };
 
@@ -291,16 +381,32 @@ export const CallModal: React.FC<CallModalProps> = ({
     return `${m}:${s}`;
   };
 
+  const isVideoCallActive = call.type === 'video' && call.status === 'connected';
+
   return (
     <div
       className={`fixed z-50 transition-all duration-300 ${
         isFullscreen
           ? 'inset-0'
           : 'bottom-4 right-4 w-[380px] md:w-[420px] max-w-[calc(100vw-32px)] h-[580px] rounded-2xl shadow-2xl'
-      } bg-[#111b21] border border-[#2a3942] flex flex-col overflow-hidden text-white`}
+      } bg-[#111b21] border border-[#2a3942] flex flex-col overflow-hidden text-white select-none`}
     >
+      {/* Universal Remote Media Element (Audio & Video) */}
+      {/* Kept mounted at all times to prevent browser audio pause / mute */}
+      <video
+        ref={remoteMediaRef}
+        autoPlay
+        playsInline
+        muted={isSpeakerMuted}
+        className={
+          isVideoCallActive && hasRemoteVideo
+            ? 'absolute inset-0 w-full h-full object-cover z-0'
+            : 'fixed -top-[9999px] -left-[9999px] w-px h-px opacity-0 pointer-events-none'
+        }
+      />
+
       {/* Top action bar */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-20 bg-gradient-to-b from-black/60 to-transparent">
+      <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-20 bg-gradient-to-b from-black/70 to-transparent">
         <div className="flex items-center space-x-2">
           <span className="w-2.5 h-2.5 rounded-full bg-[#00a884] animate-pulse"></span>
           <span className="text-xs font-medium text-[#8696a0]">
@@ -315,29 +421,23 @@ export const CallModal: React.FC<CallModalProps> = ({
         </button>
       </div>
 
-      {/* Main Body */}
+      {/* Main Call View */}
       <div className="flex-1 flex flex-col items-center justify-center relative p-6">
-        {/* Remote Video Stream if video call & connected */}
-        {call.type === 'video' && (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className={`absolute inset-0 w-full h-full object-cover ${
-              call.status === 'connected' ? 'block' : 'hidden'
-            }`}
-          />
-        )}
-
         {/* Local Video Picture-in-Picture */}
         {call.type === 'video' && !isVideoDisabled && (
-          <div className="absolute top-16 right-4 w-28 h-40 rounded-xl overflow-hidden border-2 border-[#00a884] shadow-lg z-20 bg-black">
-            <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+          <div className="absolute top-16 right-4 w-28 h-40 rounded-xl overflow-hidden border-2 border-[#00a884] shadow-2xl z-20 bg-black">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
           </div>
         )}
 
-        {/* Avatar and status (visible when audio call or still ringing) */}
-        {(call.type === 'audio' || call.status !== 'connected') && (
+        {/* Avatar and status banner (visible when audio-only or video is loading/ringing) */}
+        {(!isVideoCallActive || !hasRemoteVideo) && (
           <div className="flex flex-col items-center text-center z-10 space-y-4">
             <div className="relative">
               {call.status === 'ringing' && (
@@ -362,17 +462,14 @@ export const CallModal: React.FC<CallModalProps> = ({
             </div>
           </div>
         )}
-
-        {/* Hidden audio element for remote stream in voice calls */}
-        {call.type === 'audio' && <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />}
       </div>
 
-      {/* Bottom Controls */}
+      {/* Bottom Controls Bar */}
       <div className="p-6 bg-[#202c33]/90 backdrop-blur-md flex items-center justify-around z-20 border-t border-[#2a3942]">
-        {/* If incoming call and not yet accepted */}
         {!isCaller && !hasAnswered && call.status === 'ringing' ? (
+          /* Incoming Call Ringing Controls */
           <div className="flex items-center justify-around w-full">
-            {/* Decline */}
+            {/* Decline Button */}
             <button
               onClick={() => onEndCall(call.id, 'rejected')}
               className="flex flex-col items-center space-y-1.5 text-xs text-[#ea0038]"
@@ -380,46 +477,44 @@ export const CallModal: React.FC<CallModalProps> = ({
               <div className="w-14 h-14 rounded-full bg-[#ea0038] hover:bg-[#d00032] flex items-center justify-center text-white shadow-lg transition">
                 <PhoneOff className="w-6 h-6" />
               </div>
-              <span>Tolak</span>
+              <span className="font-semibold text-white">Tolak</span>
             </button>
 
-            {/* Accept */}
+            {/* Accept Button */}
             <button
               onClick={handleAcceptCall}
-              className="flex flex-col items-center space-y-1.5 text-xs text-[#25d366]"
+              className="flex flex-col items-center space-y-1.5 text-xs text-[#00a884]"
             >
-              <div className="w-14 h-14 rounded-full bg-[#25d366] hover:bg-[#20ba59] flex items-center justify-center text-white shadow-lg animate-bounce transition">
-                <Phone className="w-6 h-6" />
+              <div className="w-14 h-14 rounded-full bg-[#00a884] hover:bg-[#008f70] flex items-center justify-center text-white shadow-lg transition animate-bounce">
+                {call.type === 'video' ? <Video className="w-6 h-6" /> : <Phone className="w-6 h-6" />}
               </div>
-              <span>Terima</span>
+              <span className="font-semibold text-white">Terima</span>
             </button>
           </div>
         ) : (
-          /* Active call controls */
-          <>
+          /* Active Call Controls */
+          <div className="flex items-center justify-around w-full">
             {/* Mic Toggle */}
             <button
               onClick={toggleMute}
               className={`p-3.5 rounded-full transition ${
-                isMuted
-                  ? 'bg-red-500/20 text-red-500 border border-red-500/50'
-                  : 'bg-[#111b21] hover:bg-[#2a3942] text-[#e9edef]'
+                isMuted ? 'bg-[#ea0038] text-white' : 'bg-[#374248] text-[#aebac1] hover:bg-[#4a575f]'
               }`}
-              title={isMuted ? 'Buka mic' : 'Matikan mic'}
+              title={isMuted ? 'Buka Mic' : 'Matikan Mic'}
             >
               {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
 
-            {/* Video Toggle (if video call) */}
+            {/* Video Toggle (Video call only) */}
             {call.type === 'video' && (
               <button
                 onClick={toggleVideo}
                 className={`p-3.5 rounded-full transition ${
                   isVideoDisabled
-                    ? 'bg-red-500/20 text-red-500 border border-red-500/50'
-                    : 'bg-[#111b21] hover:bg-[#2a3942] text-[#e9edef]'
+                    ? 'bg-[#ea0038] text-white'
+                    : 'bg-[#374248] text-[#aebac1] hover:bg-[#4a575f]'
                 }`}
-                title={isVideoDisabled ? 'Nyalakan kamera' : 'Matikan kamera'}
+                title={isVideoDisabled ? 'Nyalakan Kamera' : 'Matikan Kamera'}
               >
                 {isVideoDisabled ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
               </button>
@@ -430,23 +525,23 @@ export const CallModal: React.FC<CallModalProps> = ({
               onClick={toggleSpeaker}
               className={`p-3.5 rounded-full transition ${
                 isSpeakerMuted
-                  ? 'bg-red-500/20 text-red-500 border border-red-500/50'
-                  : 'bg-[#111b21] hover:bg-[#2a3942] text-[#e9edef]'
+                  ? 'bg-[#ea0038] text-white'
+                  : 'bg-[#374248] text-[#aebac1] hover:bg-[#4a575f]'
               }`}
-              title={isSpeakerMuted ? 'Nyalakan suara' : 'Bisukan suara'}
+              title={isSpeakerMuted ? 'Nyalakan Suara' : 'Bisukan Suara'}
             >
               {isSpeakerMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </button>
 
-            {/* Hangup / End call button */}
+            {/* End Call Button */}
             <button
               onClick={() => onEndCall(call.id, 'ended')}
-              className="p-3.5 rounded-full bg-[#ea0038] hover:bg-[#d00032] text-white shadow-lg transition"
-              title="Akhiri panggilan"
+              className="p-3.5 rounded-full bg-[#ea0038] hover:bg-[#d00032] text-white transition shadow-lg"
+              title="Akhiri Panggilan"
             >
-              <PhoneOff className="w-6 h-6" />
+              <PhoneOff className="w-5 h-5" />
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>

@@ -3,6 +3,7 @@ import {
   startCallSession,
   getActiveCallForUser,
   getCallById,
+  setCallOffer,
   answerCallSession,
   addIceCandidate,
   endCallSession,
@@ -51,6 +52,17 @@ export async function POST(req: Request) {
           );
         }
         const call = await startCallSession({ callerId, receiverId, type, sdpOffer });
+        return NextResponse.json({ success: true, call });
+      }
+
+      case 'offer': {
+        if (!callId || !sdpOffer) {
+          return NextResponse.json(
+            { success: false, message: 'callId dan sdpOffer wajib diisi' },
+            { status: 400 }
+          );
+        }
+        const call = setCallOffer(callId, sdpOffer);
         return NextResponse.json({ success: true, call });
       }
 

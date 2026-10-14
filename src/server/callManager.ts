@@ -94,6 +94,15 @@ export function getCallById(callId: string): CallSession | null {
   return activeCalls.get(callId) || null;
 }
 
+export function setCallOffer(callId: string, sdpOffer: string): CallSession {
+  const call = activeCalls.get(callId);
+  if (!call) throw new Error('Panggilan tidak ditemukan');
+
+  call.sdpOffer = sdpOffer;
+  call.updatedAt = Date.now();
+  return call;
+}
+
 export function answerCallSession(callId: string, sdpAnswer: string): CallSession {
   const call = activeCalls.get(callId);
   if (!call) throw new Error('Panggilan tidak ditemukan');
