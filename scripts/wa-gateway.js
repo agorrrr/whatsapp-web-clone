@@ -220,10 +220,13 @@ async function startBaileys() {
     if (connection === 'close') {
       const error = lastDisconnect?.error;
       const statusCode = error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 440;
 
       if (sock) {
-        try { sock.end(undefined); } catch {}
+        try {
+          sock.ev.removeAllListeners();
+          sock.ws?.close();
+        } catch {}
         sock = null;
       }
 
@@ -238,6 +241,11 @@ async function startBaileys() {
           if (fs.existsSync(authDir)) fs.rmSync(authDir, { recursive: true, force: true });
         } catch {}
         setTimeout(() => startBaileys(), 1500);
+      } else if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
+        connectionStatus = 'conflict';
+        console.warn('\n[Gateway] ⚠️ Sesi WhatsApp digantikan oleh sesi/perangkat lain (status 440: connectionReplaced).');
+        console.warn('[Gateway] Reconnect otomatis dihentikan agar tidak terjadi perang koneksi.');
+        console.warn('[Gateway] Untuk menghubungkan ulang, buka http://localhost:3001/reconnect\n');
       } else if (shouldReconnect) {
         const delay = statusCode === DisconnectReason.restartRequired ? 200 : 3000;
         console.log(`[Gateway] Koneksi terputus (status ${statusCode}), reconnecting dalam ${delay}ms...`);
@@ -556,6 +564,24 @@ const server = http.createServer(async (req, res) => {
         user: connectedUser,
       })
     );
+  }
+
+  if (url.pathname === '/reconnect') {
+    if (sock) {
+      try {
+        sock.ev.removeAllListeners();
+        sock.ws?.close();
+      } catch {}
+      sock = null;
+    }
+    startBaileys();
+    if (req.method === 'POST') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, message: 'Reconnecting initiated' }));
+    } else {
+      res.writeHead(302, { Location: '/' });
+      return res.end();
+    }
   }
 
   if (url.pathname === '/pair' && req.method === 'POST') {
