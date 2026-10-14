@@ -333,24 +333,6 @@ export default function HomePage() {
         seenMessageIdsRef.current.add(data.message.id);
         channelRef.current?.postMessage(data.message);
         syncRealtimeData();
-
-        // Forward to real WhatsApp if chatting with a synced WA contact
-        if (activeContactId.startsWith('wa_') && text) {
-          const targetJid = activeContactId.replace('wa_', '');
-          // 1. Direct local gateway fast path
-          fetch('http://localhost:3001/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to: targetJid, text }),
-          }).catch(() => {
-            // 2. Fallback to server route
-            fetch('/api/baileys', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'send', to: targetJid, text }),
-            }).catch(() => {});
-          });
-        }
       }
     } catch (err) {
       console.error('Failed to send message:', err);

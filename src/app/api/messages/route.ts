@@ -62,6 +62,7 @@ export async function POST(req: Request) {
       .toString()
       .padStart(2, '0')}`;
 
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     let sentToRealWa = false;
 
     // If recipient is a real WhatsApp contact (starts with wa_), forward to WhatsApp
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
         const gwRes = await fetch('http://127.0.0.1:3001/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: recipientId, text }),
+          body: JSON.stringify({ to: recipientId, text, id: msgId }),
           signal: AbortSignal.timeout(2000),
         });
         const gwData = await gwRes.json();
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
     }
 
     const newMsg: Message = {
-      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: msgId,
       chatId: getChatRoomId(senderId, recipientId),
       senderId,
       recipientId,

@@ -41,6 +41,7 @@ let currentPairingCode = null;
 let connectionStatus = 'idle';
 let connectedUser = null;
 let sock = null;
+const sentMsgIds = new Set();
 
 function getAuthFolder() {
   const dir = path.join(process.cwd(), 'data', 'baileys_gateway_auth');
@@ -52,12 +53,15 @@ function getAuthFolder() {
 async function readDb() {
   if (GITHUB_TOKEN && GIST_ID) {
     try {
-      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+      const res = await fetch(`https://api.github.com/gists/${GIST_ID}?_t=${Date.now()}`, {
         headers: {
           Authorization: `token ${GITHUB_TOKEN}`,
           Accept: 'application/vnd.github.v3+json',
           'User-Agent': 'Ini-Bukan-Whatsapp-Gateway',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
         },
+        cache: 'no-store',
       });
       if (res.ok) {
         const data = await res.json();
@@ -130,6 +134,12 @@ async function startBaileys() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // Pre-populate sentMsgIds with all existing messages so they are never resent
+  readDb().then((db) => {
+    db.messages.forEach((m) => sentMsgIds.add(m.id));
+    console.log(`[Gateway] Dimuat ${sentMsgIds.size} pesan riwayat ke daftar aman.`);
+  }).catch(() => {});
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -241,7 +251,8 @@ async function startBaileys() {
 
       const db = await readDb();
       const msgId = `wa_${msg.key.id}`;
-      if (db.messages.some((m) => m.id === msgId)) continue;
+      if (db.messages.some((m) => m.id === msgId) || sentMsgIds.has(msgId)) continue;
+      sentMsgIds.add(msgId);
 
       const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
       const targetUserId = targetUser?.id || 'usr_default';
@@ -352,13 +363,17 @@ async function checkOutgoingQueue() {
         msg.senderId === targetUserId &&
         msg.recipientId &&
         msg.recipientId.startsWith('wa_') &&
-        !msg.sentToRealWa
+        !msg.sentToRealWa &&
+        !sentMsgIds.has(msg.id)
       ) {
+        // Lock immediately in memory before sending to prevent race condition/spam
+        sentMsgIds.add(msg.id);
+        msg.sentToRealWa = true;
+        msg.status = 'sent';
+        hasUpdates = true;
+
         try {
           await sendWaMessage(msg.recipientId, msg.text || '');
-          msg.sentToRealWa = true;
-          msg.status = 'sent';
-          hasUpdates = true;
         } catch (err) {
           console.error(`[Gateway] Gagal kirim pesan ke ${msg.recipientId}:`, err.message);
         }
@@ -376,8 +391,8 @@ async function checkOutgoingQueue() {
   }
 }
 
-// Check outgoing queue every 1.5 seconds
-setInterval(checkOutgoingQueue, 1500);
+// Check outgoing queue every 3 seconds
+setInterval(checkOutgoingQueue, 3000);
 
 // HTML Dashboard for easy browser connection
 function renderHtml() {
@@ -533,11 +548,17 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const parsed = JSON.parse(body);
-        const { to, text } = parsed;
+        const { to, text, id } = parsed;
         if (!to || !text) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ success: false, message: 'to dan text wajib ada' }));
         }
+
+        if (id && sentMsgIds.has(id)) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, message: 'Pesan sudah dikirim sebelumnya' }));
+        }
+        if (id) sentMsgIds.add(id);
 
         const sent = await sendWaMessage(to, text);
         res.writeHead(200, { 'Content-Type': 'application/json' });
