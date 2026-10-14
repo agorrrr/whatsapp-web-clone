@@ -1,16 +1,33 @@
 /**
  * Standalone Baileys WhatsApp Gateway Runner
- * Keeps WhatsApp connection alive 24/7 in background.
- * Syncs messages directly into the cloud Gist database.
+ * Keeps WhatsApp connection alive 24/7 on local computer.
+ * Syncs messages and profile directly into cloud Gist database.
  */
 
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const pino = require('pino');
+
+// Load .env.local if present
+const envPath = path.join(process.cwd(), '.env.local');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf-8');
+  envContent.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('#')) {
+      const idx = trimmed.indexOf('=');
+      if (idx !== -1) {
+        const k = trimmed.slice(0, idx).trim();
+        const v = trimmed.slice(idx + 1).trim().replace(/(^"|"$)/g, '');
+        if (!process.env[k]) process.env[k] = v;
+      }
+    }
+  });
+}
 
 const PORT = process.env.PORT || 3001;
 const GIST_ID = process.env.GIST_ID || '9d6bf54cf48dffbca905eff3a3a4fa45';
@@ -20,7 +37,7 @@ const GITHUB_TOKEN =
   process.env.GH_TOKEN;
 
 let qrCodeDataUrl = null;
-let pairingCode = null;
+let currentPairingCode = null;
 let connectionStatus = 'idle';
 let connectedUser = null;
 let sock = null;
@@ -91,19 +108,25 @@ async function writeDb(db) {
   } catch {}
 }
 
-async function startBaileys(phoneForPairing = null) {
+async function startBaileys() {
   connectionStatus = 'connecting';
   const authDir = getAuthFolder();
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
+  const { version } = await fetchLatestBaileysVersion().catch(() => ({
+    version: [2, 3000, 1043857760],
+  }));
+
   sock = makeWASocket({
+    version,
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: true,
-    browser: Browsers.ubuntu('Chrome'),
+    browser: ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
-    qrTimeout: 45000,
+    qrTimeout: 60000,
     connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 25000,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -114,23 +137,56 @@ async function startBaileys(phoneForPairing = null) {
     if (qr) {
       qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });
       connectionStatus = 'qrcode';
-      console.log('[Gateway] New QR Code generated. Scan with WhatsApp!');
+      console.log('\n[Gateway] ==========================================');
+      console.log('[Gateway] QR CODE BARU TERSEDIA. Buka http://localhost:3001');
+      console.log('[Gateway] ==========================================\n');
     }
 
     if (connection === 'open') {
       connectionStatus = 'connected';
       qrCodeDataUrl = null;
-      pairingCode = null;
-      console.log('[Gateway] WhatsApp Connected as:', sock.user?.id);
+      currentPairingCode = null;
 
       if (sock.user) {
-        const rawId = sock.user.id;
+        const rawId = sock.user.id || '';
         const phone = rawId.split(':')[0].replace('@s.whatsapp.net', '');
+        const name = sock.user.name || `+${phone}`;
+
+        let avatar = undefined;
+        let about = undefined;
+        try {
+          avatar = await sock.profilePictureUrl(sock.user.id, 'image');
+        } catch {}
+        try {
+          const st = await sock.fetchStatus(sock.user.id);
+          about = st?.status;
+        } catch {}
+
         connectedUser = {
           id: rawId,
           phone,
-          name: sock.user.name || `+${phone}`,
+          name,
+          avatar,
+          about,
         };
+
+        console.log(`\n[Gateway] ✅ WHATSAPP BERHASIL TERHUBUNG: ${name} (+${phone})`);
+
+        // Auto-sync into first user or ezakasep in Gist DB
+        try {
+          const db = await readDb();
+          const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
+          if (targetUser) {
+            targetUser.phone = phone;
+            if (name) targetUser.name = name;
+            if (avatar) targetUser.avatar = avatar;
+            if (about) targetUser.about = about;
+            await writeDb(db);
+            console.log(`[Gateway] ✅ Profil akun web ${targetUser.username} otomatis diperbarui.`);
+          }
+        } catch (dbErr) {
+          console.warn('[Gateway] Auto db sync error:', dbErr.message);
+        }
       }
     }
 
@@ -142,27 +198,15 @@ async function startBaileys(phoneForPairing = null) {
       if (statusCode === DisconnectReason.loggedOut) {
         connectionStatus = 'disconnected';
         connectedUser = null;
-        console.log('[Gateway] Logged out from WhatsApp');
+        qrCodeDataUrl = null;
+        currentPairingCode = null;
+        console.log('[Gateway] Sesi WhatsApp logout.');
       } else if (shouldReconnect) {
-        const delay = connectionStatus === 'qrcode' ? 25000 : 5000;
-        console.log(`[Gateway] Connection closed, waiting ${delay / 1000}s before reconnect...`);
-        setTimeout(() => startBaileys(), delay);
+        console.log('[Gateway] Koneksi terputus, reconnecting dalam 8 detik...');
+        setTimeout(() => startBaileys(), 8000);
       }
     }
   });
-
-  if (phoneForPairing && !sock.authState.creds.registered) {
-    setTimeout(async () => {
-      try {
-        const clean = phoneForPairing.replace(/[^0-9]/g, '');
-        pairingCode = await sock.requestPairingCode(clean);
-        connectionStatus = 'pairing';
-        console.log('[Gateway] Pairing Code:', pairingCode);
-      } catch (err) {
-        console.error('[Gateway] Pairing code failed:', err.message);
-      }
-    }, 2000);
-  }
 
   // Handle incoming messages
   sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -188,9 +232,8 @@ async function startBaileys(phoneForPairing = null) {
       const msgId = `wa_${msg.key.id}`;
       if (db.messages.some((m) => m.id === msgId)) continue;
 
-      // Find first registered user as recipient if not from me
-      const defaultUser = db.users[0];
-      const targetUserId = defaultUser?.id || 'usr_default';
+      const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
+      const targetUserId = targetUser?.id || 'usr_default';
 
       if (!isGroup) {
         const phone = remoteJid.replace('@s.whatsapp.net', '');
@@ -230,6 +273,119 @@ async function startBaileys(phoneForPairing = null) {
   });
 }
 
+// Request pairing code on active socket
+async function requestPairing(phone) {
+  if (!sock) {
+    throw new Error('Socket belum siap');
+  }
+  const clean = phone.replace(/[^0-9]/g, '');
+  if (!clean || clean.length < 8) {
+    throw new Error('Nomor telepon tidak valid');
+  }
+
+  // Ensure socket is not still connecting
+  if (connectionStatus === 'connecting') {
+    await new Promise((resolve) => {
+      const t = setTimeout(resolve, 6000);
+      const int = setInterval(() => {
+        if (connectionStatus !== 'connecting') {
+          clearInterval(int);
+          clearTimeout(t);
+          resolve();
+        }
+      }, 200);
+    });
+  }
+
+  const code = await sock.requestPairingCode(clean);
+  currentPairingCode = code;
+  connectionStatus = 'pairing';
+  console.log(`[Gateway] ✅ KODE PAIRING UNTUK +${clean}: ${code}`);
+  return code;
+}
+
+// HTML Dashboard for easy browser connection
+function renderHtml() {
+  const isConn = connectionStatus === 'connected' && connectedUser;
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ini Bukan Whatsapp - Local Gateway</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #111b21; color: #e9edef; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    .card { background: #202c33; width: 100%; max-width: 480px; border-radius: 16px; padding: 24px; border: 1px solid #2a3942; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
+    h1 { font-size: 1.25rem; margin-top: 0; color: #00a884; }
+    p { font-size: 0.85rem; color: #8696a0; margin: 8px 0 16px; }
+    .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; margin-bottom: 16px; }
+    .status-connected { background: rgba(37,211,102,0.15); color: #25d366; border: 1px solid rgba(37,211,102,0.3); }
+    .status-wait { background: rgba(0,168,132,0.15); color: #00a884; border: 1px solid rgba(0,168,132,0.3); }
+    .qr-box { background: white; padding: 12px; border-radius: 12px; display: inline-block; margin: 12px auto; }
+    .qr-box img { width: 220px; height: 220px; display: block; }
+    .code-box { font-size: 2rem; font-family: monospace; font-weight: bold; letter-spacing: 4px; color: #25d366; background: #111b21; padding: 12px; border-radius: 8px; border: 1px solid #00a884; margin: 16px 0; }
+    .form-group { margin: 16px 0; text-align: left; }
+    label { font-size: 0.75rem; font-weight: bold; color: #00a884; display: block; margin-bottom: 6px; }
+    input { width: 100%; background: #111b21; border: 1px solid #2a3942; padding: 10px 14px; border-radius: 8px; color: #e9edef; font-size: 0.9rem; font-family: monospace; box-sizing: border-box; outline: none; }
+    button { width: 100%; background: #00a884; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 8px; }
+    button:hover { background: #008f70; }
+    .links { margin-top: 20px; font-size: 0.75rem; }
+    .links a { color: #00a884; text-decoration: none; font-weight: bold; }
+    ol { text-align: left; font-size: 0.75rem; color: #8696a0; padding-left: 20px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>WhatsApp Gateway 24/7</h1>
+    <p>Baileys Background Runner (Koneksi Stabil Tanpa Timeout)</p>
+
+    ${
+      isConn
+        ? `<div class="status-badge status-connected">● Terhubung ke WhatsApp</div>
+           <div style="margin: 16px 0;">
+             <div style="font-size: 1.1rem; font-weight: bold;">${connectedUser.name}</div>
+             <div style="color: #8696a0; font-family: monospace;">+${connectedUser.phone}</div>
+           </div>
+           <p style="color: #25d366;">Koneksi aktif! Semua pesan WhatsApp akan tersinkron otomatis ke web app Anda.</p>
+           <button onclick="location.reload()">Refresh Status</button>`
+        : `<div class="status-badge status-wait">● Menunggu Scan / Pairing Code</div>
+
+           ${
+             currentPairingCode
+               ? `<div style="font-size: 0.8rem; color: #8696a0;">MASUKKAN KODE INI DI WHATSAPP PONSEL:</div>
+                  <div class="code-box">${currentPairingCode}</div>
+                  <p>Buka WhatsApp di HP &gt; Perangkat Tertaut &gt; Tautkan dengan nomor telepon saja.</p>`
+               : qrCodeDataUrl
+               ? `<div class="qr-box"><img src="${qrCodeDataUrl}" alt="QR Code"></div>
+                  <p>Arahkan kamera WhatsApp HP ke QR Code di atas.</p>`
+               : `<div style="padding: 30px; color: #8696a0;">Menyiapkan socket WhatsApp...</div>`
+           }
+
+           <form method="POST" action="/pair" class="form-group">
+             <label>Nomor Telepon WhatsApp untuk Kode Pairing:</label>
+             <input type="tel" name="phone" placeholder="6285183355325" value="6285183355325" required>
+             <button type="submit">Dapatkan Kode Pairing (8 Digit)</button>
+           </form>
+
+           <ol>
+             <li>Ketik nomor WhatsApp di atas lalu klik <b>Dapatkan Kode Pairing</b></li>
+             <li>Buka WhatsApp di HP &gt; Perangkat Tertaut &gt; Tautkan dengan nomor telepon</li>
+             <li>Ketik 8 huruf/angka yang muncul di atas</li>
+           </ol>`
+    }
+
+    <div class="links">
+      Buka Web App: <a href="https://wacklone.vercel.app" target="_blank">wacklone.vercel.app</a>
+    </div>
+  </div>
+  <script>
+    // Auto reload status every 4 seconds
+    setTimeout(() => location.reload(), 4000);
+  </script>
+</body>
+</html>`;
+}
+
 // HTTP Server
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -243,6 +399,11 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
+  if (url.pathname === '/' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(renderHtml());
+  }
+
   if (url.pathname === '/status' || url.pathname === '/api/baileys') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(
@@ -250,23 +411,40 @@ const server = http.createServer(async (req, res) => {
         success: true,
         status: connectionStatus,
         qrCode: qrCodeDataUrl,
-        pairingCode,
+        pairingCode: currentPairingCode,
         user: connectedUser,
       })
     );
   }
 
-  if (url.pathname === '/connect' && req.method === 'POST') {
+  if (url.pathname === '/pair' && req.method === 'POST') {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', async () => {
-      let parsed = {};
+      let phone = '';
+      if (body.includes('phone=')) {
+        phone = decodeURIComponent(body.split('phone=')[1].split('&')[0]);
+      } else {
+        try {
+          const parsed = JSON.parse(body);
+          phone = parsed.phone;
+        } catch {}
+      }
+
       try {
-        parsed = JSON.parse(body);
-      } catch {}
-      await startBaileys(parsed.phone);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, status: connectionStatus }));
+        const code = await requestPairing(phone);
+        if (req.headers['content-type']?.includes('application/json')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, pairingCode: code }));
+        } else {
+          // Redirect back to dashboard
+          res.writeHead(302, { Location: '/' });
+          return res.end();
+        }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, message: err.message }));
+      }
     });
     return;
   }
@@ -276,6 +454,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[Gateway] WhatsApp Baileys Gateway running on port ${PORT}`);
+  console.log(`[Gateway] WhatsApp Baileys Gateway running on http://localhost:${PORT}`);
   startBaileys();
 });

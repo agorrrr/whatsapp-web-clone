@@ -4,6 +4,7 @@ import makeWASocket, {
   WASocket,
   proto,
   Browsers,
+  fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -229,17 +230,22 @@ export async function connectBaileys(options?: {
 
     const logger = pino({ level: 'silent' });
 
+    const { version } = await fetchLatestBaileysVersion().catch(() => ({
+      version: [2, 3000, 1043857760] as [number, number, number],
+    }));
+
     const sock = makeWASocket({
+      version,
       auth: authState,
       logger,
       printQRInTerminal: false,
-      browser: Browsers.ubuntu('Chrome'),
+      browser: ['Ubuntu', 'Chrome', '20.0.04'],
       syncFullHistory: false,
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 90000,
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 30000,
-      qrTimeout: 45000,
+      qrTimeout: 60000,
     });
 
     global.__baileysSocket = sock;
@@ -253,11 +259,33 @@ export async function connectBaileys(options?: {
       }
     });
 
+    let pairingRequested = false;
+
     // Connection events
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
-      if (qr) {
+      // Request pairing code safely when socket is open and ready
+      if (
+        options?.phoneForPairing &&
+        !pairingRequested &&
+        !sock.authState.creds.registered &&
+        (qr || connection === 'open')
+      ) {
+        pairingRequested = true;
+        try {
+          const cleanPhone = options.phoneForPairing.replace(/[^0-9]/g, '');
+          const code = await sock.requestPairingCode(cleanPhone);
+          state.pairingCode = code;
+          state.status = 'pairing';
+          baileysEvents.emit('event', { type: 'pairing', pairingCode: code });
+        } catch (pairErr: any) {
+          state.lastError = 'Gagal request pairing code: ' + (pairErr?.message || pairErr);
+          baileysEvents.emit('event', { type: 'error', error: state.lastError });
+        }
+      }
+
+      if (qr && !options?.phoneForPairing) {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });
           state.qrCode = qrDataUrl;
@@ -349,23 +377,6 @@ export async function connectBaileys(options?: {
       }
     });
 
-    // Handle pairing code if requested
-    if (options?.phoneForPairing && !sock.authState.creds.registered) {
-      const cleanPhone = options.phoneForPairing.replace(/[^0-9]/g, '');
-      if (cleanPhone) {
-        setTimeout(async () => {
-          try {
-            const code = await sock.requestPairingCode(cleanPhone);
-            state.pairingCode = code;
-            state.status = 'pairing';
-            baileysEvents.emit('event', { type: 'pairing', pairingCode: code });
-          } catch (pairErr: any) {
-            state.lastError = 'Gagal request pairing code: ' + (pairErr?.message || pairErr);
-            baileysEvents.emit('event', { type: 'error', error: state.lastError });
-          }
-        }, 1500);
-      }
-    }
 
     // Listen to incoming messages and sync into db
     sock.ev.on('messages.upsert', async ({ messages: newMsgs }) => {
@@ -471,6 +482,20 @@ export async function connectBaileys(options?: {
         }
       }
     });
+
+    // If waiting for pairing code, wait for it to be generated before returning HTTP response
+    if (options?.phoneForPairing && !sock.authState.creds.registered) {
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 8000);
+        const interval = setInterval(() => {
+          if (state.pairingCode || state.status === 'connected' || state.status === 'error') {
+            clearInterval(interval);
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 200);
+      });
+    }
 
     return state;
   } catch (err: any) {
