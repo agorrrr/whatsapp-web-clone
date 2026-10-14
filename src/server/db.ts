@@ -21,7 +21,8 @@ let inMemoryCache: DatabaseSchema = {
   groups: [],
 };
 let lastFetchTime = 0;
-const CACHE_TTL_MS = 1000; // 1 second cache
+const CACHE_TTL_MS = 2500;
+let activeFetchPromise: Promise<DatabaseSchema> | null = null;
 
 function getLocalFallbackPath(): string {
   try {
@@ -40,52 +41,64 @@ export async function readDb(): Promise<DatabaseSchema> {
     return inMemoryCache;
   }
 
-  // Fetch from Gist
-  if (GITHUB_TOKEN && GIST_ID) {
-    try {
-      const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-        headers: {
-          Authorization: `token ${GITHUB_TOKEN}`,
-          Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'Ini-Bukan-Whatsapp-Backend',
-        },
-        cache: 'no-store',
-      });
+  if (activeFetchPromise) {
+    return activeFetchPromise;
+  }
 
-      if (res.ok) {
-        const data = await res.json();
-        const content = data.files?.['database.json']?.content;
-        if (content) {
-          const parsed = JSON.parse(content);
+  activeFetchPromise = (async () => {
+    try {
+      // Fetch from Gist
+      if (GITHUB_TOKEN && GIST_ID) {
+        try {
+          const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+            headers: {
+              Authorization: `token ${GITHUB_TOKEN}`,
+              Accept: 'application/vnd.github.v3+json',
+              'User-Agent': 'Ini-Bukan-Whatsapp-Backend',
+            },
+            cache: 'no-store',
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const content = data.files?.['database.json']?.content;
+            if (content) {
+              const parsed = JSON.parse(content);
+              inMemoryCache = {
+                users: Array.isArray(parsed.users) ? parsed.users : [],
+                messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+                groups: Array.isArray(parsed.groups) ? parsed.groups : [],
+              };
+              lastFetchTime = Date.now();
+              return inMemoryCache;
+            }
+          }
+        } catch (err) {
+          console.warn('Gist fetch failed, using fallback:', err);
+        }
+      }
+
+      // Fallback to local file
+      try {
+        const fp = getLocalFallbackPath();
+        if (fs.existsSync(fp)) {
+          const parsed = JSON.parse(fs.readFileSync(fp, 'utf-8'));
           inMemoryCache = {
             users: Array.isArray(parsed.users) ? parsed.users : [],
             messages: Array.isArray(parsed.messages) ? parsed.messages : [],
             groups: Array.isArray(parsed.groups) ? parsed.groups : [],
           };
-          lastFetchTime = now;
           return inMemoryCache;
         }
-      }
-    } catch (err) {
-      console.warn('Gist fetch failed, using fallback:', err);
-    }
-  }
+      } catch {}
 
-  // Fallback to local file
-  try {
-    const fp = getLocalFallbackPath();
-    if (fs.existsSync(fp)) {
-      const parsed = JSON.parse(fs.readFileSync(fp, 'utf-8'));
-      inMemoryCache = {
-        users: Array.isArray(parsed.users) ? parsed.users : [],
-        messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-        groups: Array.isArray(parsed.groups) ? parsed.groups : [],
-      };
       return inMemoryCache;
+    } finally {
+      activeFetchPromise = null;
     }
-  } catch {}
+  })();
 
-  return inMemoryCache;
+  return activeFetchPromise;
 }
 
 // Write to Gist and local fallback

@@ -15,13 +15,13 @@ const pino = require('pino');
 // Load .env.local if present
 const envPath = path.join(process.cwd(), '.env.local');
 if (fs.existsSync(envPath)) {
-  const envContent = fs.readFileSync(envPath, 'utf-8');
+  const envContent = fs.readFileSync(envPath, 'utf-8').replace(/^\uFEFF/, '');
   envContent.split('\n').forEach((line) => {
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith('#')) {
       const idx = trimmed.indexOf('=');
       if (idx !== -1) {
-        const k = trimmed.slice(0, idx).trim();
+        const k = trimmed.slice(0, idx).trim().replace(/^\uFEFF/, '');
         const v = trimmed.slice(idx + 1).trim().replace(/(^"|"$)/g, '');
         if (!process.env[k]) process.env[k] = v;
       }
@@ -35,6 +35,12 @@ const GITHUB_TOKEN =
   process.env.DATABASE_TOKEN ||
   process.env.GITHUB_TOKEN ||
   process.env.GH_TOKEN;
+
+console.log(
+  `[Gateway] Cloud sync: GIST_ID=${GIST_ID ? 'OK' : 'MISSING'}, GITHUB_TOKEN=${
+    GITHUB_TOKEN ? 'LOADED (' + GITHUB_TOKEN.slice(0, 8) + '...)' : 'MISSING'
+  }`
+);
 
 let qrCodeDataUrl = null;
 let currentPairingCode = null;
@@ -251,8 +257,15 @@ async function startBaileys() {
 
       const db = await readDb();
       const msgId = `wa_${msg.key.id}`;
-      if (db.messages.some((m) => m.id === msgId) || sentMsgIds.has(msgId)) continue;
+      if (
+        db.messages.some((m) => m.id === msgId) ||
+        sentMsgIds.has(msgId) ||
+        (msg.key?.id && sentMsgIds.has(msg.key.id))
+      ) {
+        continue;
+      }
       sentMsgIds.add(msgId);
+      if (msg.key?.id) sentMsgIds.add(msg.key.id);
 
       const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
       const targetUserId = targetUser?.id || 'usr_default';
@@ -260,6 +273,21 @@ async function startBaileys() {
       if (!isGroup) {
         const phone = remoteJid.replace('@s.whatsapp.net', '');
         const waContactId = `wa_${phone}`;
+
+        if (fromMe) {
+          // Drop echo if this text was already sent from web app to this recipient
+          const isEcho = db.messages.some(
+            (m) =>
+              m.senderId === targetUserId &&
+              (m.recipientId === waContactId || m.chatId.includes(waContactId)) &&
+              m.text === text &&
+              (m.id.startsWith('msg_') || m.sentToRealWa)
+          );
+          if (isEcho) {
+            console.log(`[Gateway] Abaikan echo balasan: "${text.slice(0, 30)}"`);
+            continue;
+          }
+        }
 
         let contact = db.users.find((u) => u.id === waContactId);
         if (!contact) {
@@ -341,6 +369,10 @@ async function sendWaMessage(toJidOrPhone, text) {
   }
 
   const sent = await sock.sendMessage(jid, { text });
+  if (sent?.key?.id) {
+    sentMsgIds.add(sent.key.id);
+    sentMsgIds.add(`wa_${sent.key.id}`);
+  }
   console.log(`[Gateway] 🚀 Pesan WhatsApp berhasil dikirim ke ${jid}: "${text}"`);
   return sent;
 }
@@ -373,7 +405,11 @@ async function checkOutgoingQueue() {
         hasUpdates = true;
 
         try {
-          await sendWaMessage(msg.recipientId, msg.text || '');
+          const sent = await sendWaMessage(msg.recipientId, msg.text || '');
+          if (sent?.key?.id) {
+            sentMsgIds.add(sent.key.id);
+            sentMsgIds.add(`wa_${sent.key.id}`);
+          }
         } catch (err) {
           console.error(`[Gateway] Gagal kirim pesan ke ${msg.recipientId}:`, err.message);
         }

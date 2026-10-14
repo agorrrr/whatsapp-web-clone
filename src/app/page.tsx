@@ -35,6 +35,7 @@ export default function HomePage() {
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef<boolean>(false);
+  const isSyncingRef = useRef<boolean>(false);
 
   // Initialize theme & session
   useEffect(() => {
@@ -110,7 +111,8 @@ export default function HomePage() {
 
   // Universal real-time sync (catches messages from friends, strangers, groups)
   const syncRealtimeData = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || isSyncingRef.current) return;
+    isSyncingRef.current = true;
     try {
       const activeParam = activeContactId ? `&activeContactId=${encodeURIComponent(activeContactId)}` : '';
       const res = await fetch(
@@ -251,10 +253,12 @@ export default function HomePage() {
       initialLoadDoneRef.current = true;
     } catch (err) {
       console.warn('Realtime sync error:', err);
+    } finally {
+      isSyncingRef.current = false;
     }
   }, [currentUser, activeContactId, playNotificationSound]);
 
-  // High-frequency polling (every 1.2s) & immediate focus/visibility wakeup
+  // Polling (every 2.5s) & immediate focus/visibility wakeup
   useEffect(() => {
     if (!currentUser) return;
 
@@ -280,7 +284,7 @@ export default function HomePage() {
 
     pollingTimerRef.current = setInterval(() => {
       syncRealtimeData();
-    }, 1200);
+    }, 2500);
 
     return () => {
       if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
