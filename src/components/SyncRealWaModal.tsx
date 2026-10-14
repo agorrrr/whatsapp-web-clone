@@ -15,6 +15,8 @@ import {
   ArrowRight,
   Sparkles,
   ExternalLink,
+  Terminal,
+  Laptop,
 } from 'lucide-react';
 
 interface SyncRealWaModalProps {
@@ -43,7 +45,7 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
   onProfileSynced,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'pairing'>('qr');
+  const [activeTab, setActiveTab] = useState<'qr' | 'pairing' | 'gateway'>('qr');
   const [statusData, setStatusData] = useState<BaileysStatusData>({
     status: 'idle',
     qrCode: null,
@@ -220,19 +222,59 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
     }
   };
 
-  // Mount effect: fetch status & start polling
+  // Mount effect: connect real-time SSE stream to keep lambda alive & poll backup
   useEffect(() => {
     fetchStatus();
-    triggerConnect();
 
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource(`/api/baileys/sse?userId=${encodeURIComponent(currentUser.id)}`);
+
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'qr' && payload.qrCode) {
+            setStatusData((prev) => ({ ...prev, status: 'qrcode', qrCode: payload.qrCode }));
+            setQrCountdown(45);
+          } else if (payload.type === 'connected' && payload.user) {
+            setStatusData((prev) => ({
+              ...prev,
+              status: 'connected',
+              user: payload.user,
+              qrCode: null,
+              pairingCode: null,
+            }));
+            setFeedbackMsg({
+              type: 'success',
+              text: `Berhasil terhubung ke WhatsApp: ${payload.user.name || payload.user.phone}!`,
+            });
+          } else if (payload.type === 'pairing' && payload.pairingCode) {
+            setStatusData((prev) => ({ ...prev, status: 'pairing', pairingCode: payload.pairingCode }));
+          } else if (payload.type === 'status' && payload.status) {
+            setStatusData((prev) => ({ ...prev, status: payload.status }));
+          } else if (payload.type === 'init') {
+            setStatusData((prev) => ({
+              status: payload.status || prev.status,
+              qrCode: payload.qrCode || prev.qrCode,
+              user: payload.user || prev.user,
+              pairingCode: payload.pairingCode || prev.pairingCode,
+              lastError: payload.lastError,
+            }));
+          }
+        } catch {}
+      };
+    } catch {}
+
+    // Backup polling every 3.5s
     pollTimerRef.current = setInterval(() => {
       fetchStatus();
-    }, 3000);
+    }, 3500);
 
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (eventSource) eventSource.close();
     };
-  }, []);
+  }, [currentUser.id]);
 
   const isConnected = statusData.status === 'connected' && Boolean(statusData.user);
 
@@ -377,7 +419,7 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                   }`}
                 >
                   <QrCode className="w-3.5 h-3.5" />
-                  <span>Scan Kode QR</span>
+                  <span>Scan QR (Cloud)</span>
                 </button>
 
                 <button
@@ -391,6 +433,19 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                 >
                   <Smartphone className="w-3.5 h-3.5" />
                   <span>Kode Pairing (8 Digit)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('gateway')}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors ${
+                    activeTab === 'gateway'
+                      ? 'bg-white dark:bg-[#202c33] text-[#00a884] shadow-xs'
+                      : 'text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef]'
+                  }`}
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>Gateway PC (24/7)</span>
                 </button>
               </div>
 
@@ -455,7 +510,7 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                     <span>Muat Ulang QR Manual</span>
                   </button>
                 </div>
-              ) : (
+              ) : activeTab === 'pairing' ? (
                 /* Pairing Code Tab */
                 <form onSubmit={handleRequestPairing} className="space-y-4">
                   <div>
@@ -500,6 +555,28 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                     </div>
                   )}
                 </form>
+              ) : (
+                /* Gateway PC Tab */
+                <div className="space-y-4 text-xs">
+                  <div className="bg-[#f0f2f5] dark:bg-[#111b21] rounded-xl p-4 border border-[#00a884]/30 space-y-3">
+                    <div className="flex items-center space-x-2 text-[#008069] dark:text-[#25d366] font-bold">
+                      <Terminal className="w-4 h-4" />
+                      <span>Solusi Anti Gagal: Background Gateway PC</span>
+                    </div>
+                    <p className="text-[#54656f] dark:text-[#aebac1] leading-relaxed">
+                      Serverless cloud (Vercel) membekukan koneksi WebSocket jika HP terlambat mengirim paket handshake. Agar koneksi tidak pernah timeout dan login 100% instan:
+                    </p>
+                    <div className="bg-black/90 text-[#25d366] font-mono p-3 rounded-lg text-xs select-all">
+                      npm run wa-gateway
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1.5 text-[#8696a0] text-[11px]">
+                      <li>Buka PowerShell / Command Prompt di folder komputer ini</li>
+                      <li>Ketik <code className="text-[#00a884] font-bold">npm run wa-gateway</code> lalu tekan Enter</li>
+                      <li>Scan QR yang muncul di terminal komputer</li>
+                      <li>Selesai! Pesan WhatsApp akan tersinkron otomatis ke web ini 24/7.</li>
+                    </ol>
+                  </div>
+                </div>
               )}
             </div>
           )}

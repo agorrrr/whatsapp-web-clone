@@ -10,6 +10,7 @@ import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { EventEmitter } from 'events';
 import {
   readDb,
   writeDb,
@@ -45,6 +46,16 @@ export interface BaileysState {
   connectedAt: string | null;
 }
 
+const baileysEvents = new EventEmitter();
+baileysEvents.setMaxListeners(50);
+
+export function onBaileysEvent(callback: (evt: { type: string; [key: string]: any }) => void) {
+  baileysEvents.on('event', callback);
+  return () => {
+    baileysEvents.off('event', callback);
+  };
+}
+
 // Global in-memory singleton to persist connection across Next.js API requests
 declare global {
   // eslint-disable-next-line no-var
@@ -71,6 +82,18 @@ function getState(): BaileysState {
 }
 
 function getAuthFolder(): string {
+  // On Vercel / serverless, process.cwd() is strictly read-only.
+  // ALWAYS use os.tmpdir() to prevent EROFS read-only crashes during login handshake.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    const tmpDir = path.join(os.tmpdir(), 'baileys_auth');
+    if (!fs.existsSync(tmpDir)) {
+      try {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      } catch {}
+    }
+    return tmpDir;
+  }
+
   try {
     const localDir = path.join(process.cwd(), 'data', 'baileys_auth');
     if (!fs.existsSync(localDir)) {
@@ -221,8 +244,14 @@ export async function connectBaileys(options?: {
 
     global.__baileysSocket = sock;
 
-    // Save auth credentials whenever updated
-    sock.ev.on('creds.update', saveCreds);
+    // Save auth credentials whenever updated safely
+    sock.ev.on('creds.update', async () => {
+      try {
+        await saveCreds();
+      } catch (err: any) {
+        console.warn('saveCreds error:', err?.message);
+      }
+    });
 
     // Connection events
     sock.ev.on('connection.update', async (update) => {
@@ -233,8 +262,10 @@ export async function connectBaileys(options?: {
           const qrDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });
           state.qrCode = qrDataUrl;
           state.status = 'qrcode';
+          baileysEvents.emit('event', { type: 'qr', qrCode: qrDataUrl });
         } catch (err: any) {
           state.lastError = 'Gagal generate QR Code: ' + err?.message;
+          baileysEvents.emit('event', { type: 'error', error: state.lastError });
         }
       }
 
@@ -274,6 +305,8 @@ export async function connectBaileys(options?: {
             about,
           };
 
+          baileysEvents.emit('event', { type: 'connected', user: state.user });
+
           // Auto-sync into user account if linkedUserId is set
           if (state.linkedUserId) {
             try {
@@ -297,10 +330,12 @@ export async function connectBaileys(options?: {
           state.pairingCode = null;
           state.lastError = 'Sesi WhatsApp telah logout dari ponsel.';
           global.__baileysSocket = null;
+          baileysEvents.emit('event', { type: 'disconnected', error: state.lastError });
         } else if (shouldReconnect) {
           // If waiting for QR, wait at least 30s so user has plenty of time to scan
           const reconnectDelay = state.status === 'qrcode' ? 30000 : 5000;
           state.status = 'connecting';
+          baileysEvents.emit('event', { type: 'status', status: 'connecting' });
           setTimeout(() => {
             if (state.status !== 'disconnected' && state.status !== 'connected') {
               connectBaileys({ userId: state.linkedUserId || undefined });
@@ -309,6 +344,7 @@ export async function connectBaileys(options?: {
         } else {
           state.status = 'error';
           state.lastError = error?.message || 'Koneksi WhatsApp terputus.';
+          baileysEvents.emit('event', { type: 'error', error: state.lastError });
         }
       }
     });
@@ -322,8 +358,10 @@ export async function connectBaileys(options?: {
             const code = await sock.requestPairingCode(cleanPhone);
             state.pairingCode = code;
             state.status = 'pairing';
+            baileysEvents.emit('event', { type: 'pairing', pairingCode: code });
           } catch (pairErr: any) {
             state.lastError = 'Gagal request pairing code: ' + (pairErr?.message || pairErr);
+            baileysEvents.emit('event', { type: 'error', error: state.lastError });
           }
         }, 1500);
       }
