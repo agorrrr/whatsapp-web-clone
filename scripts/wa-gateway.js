@@ -205,11 +205,12 @@ async function startBaileys() {
         connectedUser = null;
         qrCodeDataUrl = null;
         currentPairingCode = null;
-        console.log('[Gateway] Sesi WhatsApp logout dari ponsel.');
+        console.log('[Gateway] Sesi WhatsApp logout dari ponsel. Bersihkan auth lama dan mulai sesi baru...');
         try {
           const authDir = getAuthFolder();
           if (fs.existsSync(authDir)) fs.rmSync(authDir, { recursive: true, force: true });
         } catch {}
+        setTimeout(() => startBaileys(), 1500);
       } else if (shouldReconnect) {
         const delay = statusCode === DisconnectReason.restartRequired ? 200 : 3000;
         console.log(`[Gateway] Koneksi terputus (status ${statusCode}), reconnecting dalam ${delay}ms...`);
@@ -439,7 +440,10 @@ const server = http.createServer(async (req, res) => {
         try {
           const parsed = JSON.parse(body);
           phone = parsed.phone;
-        } catch {}
+        } catch {
+          const match = body.match(/\d{8,15}/);
+          if (match) phone = match[0];
+        }
       }
 
       try {
