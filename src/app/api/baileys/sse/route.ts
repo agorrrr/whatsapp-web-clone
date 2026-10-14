@@ -12,9 +12,15 @@ export const maxDuration = 60; // Keep lambda execution alive up to 60 seconds d
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get('userId') || undefined;
+  const phone = searchParams.get('phone') || undefined;
+  const force = searchParams.get('force') === 'true';
 
-  // Trigger Baileys connection if not already connecting/connected
-  connectBaileys({ userId }).catch((err) => {
+  // Trigger Baileys connection (supports pairing code phone or QR mode)
+  connectBaileys({
+    userId,
+    phoneForPairing: phone,
+    forceRestart: force || Boolean(phone),
+  }).catch((err) => {
     console.warn('SSE trigger connect error:', err);
   });
 

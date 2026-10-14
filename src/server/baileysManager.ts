@@ -239,7 +239,7 @@ export async function connectBaileys(options?: {
       auth: authState,
       logger,
       printQRInTerminal: false,
-      browser: ['Ubuntu', 'Chrome', '20.0.04'],
+      browser: Browsers.ubuntu('Chrome'),
       syncFullHistory: false,
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 90000,
@@ -277,6 +277,7 @@ export async function connectBaileys(options?: {
           const cleanPhone = options.phoneForPairing.replace(/[^0-9]/g, '');
           const code = await sock.requestPairingCode(cleanPhone);
           state.pairingCode = code;
+          state.qrCode = null;
           state.status = 'pairing';
           baileysEvents.emit('event', { type: 'pairing', pairingCode: code });
         } catch (pairErr: any) {
@@ -285,7 +286,7 @@ export async function connectBaileys(options?: {
         }
       }
 
-      if (qr && !options?.phoneForPairing) {
+      if (qr && !options?.phoneForPairing && state.status !== 'pairing') {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 6 });
           state.qrCode = qrDataUrl;
@@ -351,22 +352,38 @@ export async function connectBaileys(options?: {
         const statusCode = error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
+        // Clean current socket reference so next connect creates fresh socket
+        if (global.__baileysSocket) {
+          try {
+            global.__baileysSocket.end(undefined);
+          } catch {}
+          global.__baileysSocket = null;
+        }
+
         if (statusCode === DisconnectReason.loggedOut) {
           state.status = 'disconnected';
           state.user = null;
           state.qrCode = null;
           state.pairingCode = null;
           state.lastError = 'Sesi WhatsApp telah logout dari ponsel.';
-          global.__baileysSocket = null;
           baileysEvents.emit('event', { type: 'disconnected', error: state.lastError });
+
+          // Clear credentials folder on explicit logout
+          try {
+            const authDir = getAuthFolder();
+            if (fs.existsSync(authDir)) {
+              fs.rmSync(authDir, { recursive: true, force: true });
+            }
+          } catch {}
         } else if (shouldReconnect) {
-          // If waiting for QR, wait at least 30s so user has plenty of time to scan
-          const reconnectDelay = state.status === 'qrcode' ? 30000 : 5000;
+          // If restart required (code 515), reconnect IMMEDIATELY (200ms) so WhatsApp registration handshake completes!
+          // Otherwise wait 3s before retry.
+          const reconnectDelay = statusCode === DisconnectReason.restartRequired ? 200 : 3000;
           state.status = 'connecting';
           baileysEvents.emit('event', { type: 'status', status: 'connecting' });
           setTimeout(() => {
             if (state.status !== 'disconnected' && state.status !== 'connected') {
-              connectBaileys({ userId: state.linkedUserId || undefined });
+              connectBaileys({ userId: state.linkedUserId || undefined, forceRestart: true });
             }
           }, reconnectDelay);
         } else {

@@ -122,7 +122,7 @@ async function startBaileys() {
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: true,
-    browser: ['Ubuntu', 'Chrome', '20.0.04'],
+    browser: Browsers.ubuntu('Chrome'),
     syncFullHistory: false,
     qrTimeout: 60000,
     connectTimeoutMs: 60000,
@@ -195,15 +195,25 @@ async function startBaileys() {
       const statusCode = error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
+      if (sock) {
+        try { sock.end(undefined); } catch {}
+        sock = null;
+      }
+
       if (statusCode === DisconnectReason.loggedOut) {
         connectionStatus = 'disconnected';
         connectedUser = null;
         qrCodeDataUrl = null;
         currentPairingCode = null;
-        console.log('[Gateway] Sesi WhatsApp logout.');
+        console.log('[Gateway] Sesi WhatsApp logout dari ponsel.');
+        try {
+          const authDir = getAuthFolder();
+          if (fs.existsSync(authDir)) fs.rmSync(authDir, { recursive: true, force: true });
+        } catch {}
       } else if (shouldReconnect) {
-        console.log('[Gateway] Koneksi terputus, reconnecting dalam 8 detik...');
-        setTimeout(() => startBaileys(), 8000);
+        const delay = statusCode === DisconnectReason.restartRequired ? 200 : 3000;
+        console.log(`[Gateway] Koneksi terputus (status ${statusCode}), reconnecting dalam ${delay}ms...`);
+        setTimeout(() => startBaileys(), delay);
       }
     }
   });
@@ -299,6 +309,7 @@ async function requestPairing(phone) {
 
   const code = await sock.requestPairingCode(clean);
   currentPairingCode = code;
+  qrCodeDataUrl = null;
   connectionStatus = 'pairing';
   console.log(`[Gateway] ✅ KODE PAIRING UNTUK +${clean}: ${code}`);
   return code;

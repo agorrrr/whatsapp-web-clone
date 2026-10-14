@@ -96,10 +96,77 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
     return () => clearInterval(timer);
   }, [activeTab, statusData.qrCode, statusData.status]);
 
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Connect or switch SSE stream
+  const startSse = (phone?: string, force = false) => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    try {
+      const q = new URLSearchParams({
+        userId: currentUser.id,
+      });
+      if (phone) q.set('phone', phone);
+      if (force) q.set('force', 'true');
+
+      const es = new EventSource(`/api/baileys/sse?${q.toString()}`);
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'qr' && payload.qrCode) {
+            setStatusData((prev) => ({
+              ...prev,
+              status: 'qrcode',
+              qrCode: payload.qrCode,
+              pairingCode: null,
+            }));
+            setQrCountdown(45);
+          } else if (payload.type === 'connected' && payload.user) {
+            setStatusData((prev) => ({
+              ...prev,
+              status: 'connected',
+              user: payload.user,
+              qrCode: null,
+              pairingCode: null,
+            }));
+            setFeedbackMsg({
+              type: 'success',
+              text: `Berhasil terhubung ke WhatsApp: ${payload.user.name || payload.user.phone}!`,
+            });
+            onProfileSynced(payload.user);
+          } else if (payload.type === 'pairing' && payload.pairingCode) {
+            setStatusData((prev) => ({
+              ...prev,
+              status: 'pairing',
+              pairingCode: payload.pairingCode,
+              qrCode: null,
+            }));
+          } else if (payload.type === 'status' && payload.status) {
+            setStatusData((prev) => ({ ...prev, status: payload.status }));
+          } else if (payload.type === 'init') {
+            setStatusData((prev) => ({
+              status: payload.status || prev.status,
+              qrCode: payload.qrCode || prev.qrCode,
+              user: payload.user || prev.user,
+              pairingCode: payload.pairingCode || prev.pairingCode,
+              lastError: payload.lastError,
+            }));
+          }
+        } catch {}
+      };
+    } catch {}
+  };
+
   // Start connection once on mount
   const triggerConnect = async (force = false) => {
     setLoading(true);
     setFeedbackMsg(null);
+    startSse(undefined, force);
     try {
       const res = await fetch('/api/baileys', {
         method: 'POST',
@@ -140,6 +207,9 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
 
     setLoading(true);
     setFeedbackMsg(null);
+    // Open persistent SSE stream with pairing phone so serverless container stays alive
+    startSse(cleanPhone, true);
+
     try {
       const res = await fetch('/api/baileys', {
         method: 'POST',
@@ -155,6 +225,7 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
         setStatusData((prev) => ({
           ...prev,
           pairingCode: data.pairingCode,
+          qrCode: null,
           status: 'pairing',
         }));
       } else {
@@ -222,48 +293,10 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
     }
   };
 
-  // Mount effect: connect real-time SSE stream to keep lambda alive & poll backup
+  // Mount effect: connect real-time SSE stream & poll backup
   useEffect(() => {
     fetchStatus();
-
-    let eventSource: EventSource | null = null;
-    try {
-      eventSource = new EventSource(`/api/baileys/sse?userId=${encodeURIComponent(currentUser.id)}`);
-
-      eventSource.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.type === 'qr' && payload.qrCode) {
-            setStatusData((prev) => ({ ...prev, status: 'qrcode', qrCode: payload.qrCode }));
-            setQrCountdown(45);
-          } else if (payload.type === 'connected' && payload.user) {
-            setStatusData((prev) => ({
-              ...prev,
-              status: 'connected',
-              user: payload.user,
-              qrCode: null,
-              pairingCode: null,
-            }));
-            setFeedbackMsg({
-              type: 'success',
-              text: `Berhasil terhubung ke WhatsApp: ${payload.user.name || payload.user.phone}!`,
-            });
-          } else if (payload.type === 'pairing' && payload.pairingCode) {
-            setStatusData((prev) => ({ ...prev, status: 'pairing', pairingCode: payload.pairingCode }));
-          } else if (payload.type === 'status' && payload.status) {
-            setStatusData((prev) => ({ ...prev, status: payload.status }));
-          } else if (payload.type === 'init') {
-            setStatusData((prev) => ({
-              status: payload.status || prev.status,
-              qrCode: payload.qrCode || prev.qrCode,
-              user: payload.user || prev.user,
-              pairingCode: payload.pairingCode || prev.pairingCode,
-              lastError: payload.lastError,
-            }));
-          }
-        } catch {}
-      };
-    } catch {}
+    startSse();
 
     // Backup polling every 3.5s
     pollTimerRef.current = setInterval(() => {
@@ -272,7 +305,10 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
 
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-      if (eventSource) eventSource.close();
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
     };
   }, [currentUser.id]);
 
