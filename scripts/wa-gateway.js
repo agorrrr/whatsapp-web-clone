@@ -12,6 +12,13 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers
 const QRCode = require('qrcode');
 const pino = require('pino');
 
+process.on('uncaughtException', (err) => {
+  console.error('[Gateway] uncaughtException:', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Gateway] unhandledRejection:', reason?.message || reason);
+});
+
 // Load .env.local if present
 const envPath = path.join(process.cwd(), '.env.local');
 if (fs.existsSync(envPath)) {
@@ -68,6 +75,7 @@ async function readDb() {
           Pragma: 'no-cache',
         },
         cache: 'no-store',
+        signal: AbortSignal.timeout(6000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -82,7 +90,9 @@ async function readDb() {
   // Fallback
   const fallbackPath = path.join(process.cwd(), 'data', 'database.json');
   if (fs.existsSync(fallbackPath)) {
-    return JSON.parse(fs.readFileSync(fallbackPath, 'utf-8'));
+    try {
+      return JSON.parse(fs.readFileSync(fallbackPath, 'utf-8'));
+    } catch {}
   }
   return { users: [], messages: [], groups: [] };
 }
@@ -99,6 +109,7 @@ async function writeDb(db) {
           'Content-Type': 'application/json',
           'User-Agent': 'Ini-Bukan-Whatsapp-Gateway',
         },
+        signal: AbortSignal.timeout(6000),
         body: JSON.stringify({
           files: {
             'database.json': {
@@ -237,89 +248,93 @@ async function startBaileys() {
 
   // Handle incoming messages
   sock.ev.on('messages.upsert', async ({ messages }) => {
-    for (const msg of messages) {
-      const remoteJid = msg.key?.remoteJid;
-      if (!remoteJid || remoteJid === 'status@broadcast') continue;
+    try {
+      for (const msg of messages) {
+        const remoteJid = msg.key?.remoteJid;
+        if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
-      const fromMe = Boolean(msg.key?.fromMe);
-      const text =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        (msg.message?.audioMessage ? 'Pesan Suara' : 'Pesan WhatsApp');
+        const fromMe = Boolean(msg.key?.fromMe);
+        const text =
+          msg.message?.conversation ||
+          msg.message?.extendedTextMessage?.text ||
+          msg.message?.imageMessage?.caption ||
+          (msg.message?.audioMessage ? 'Pesan Suara' : 'Pesan WhatsApp');
 
-      const isGroup = remoteJid.endsWith('@g.us');
-      const now = new Date();
-      const timeString = `${now.getHours().toString().padStart(2, '0')}:${now
-        .getMinutes()
-        .toString()
-        .padStart(2, '0')}`;
+        const isGroup = remoteJid.endsWith('@g.us');
+        const now = new Date();
+        const timeString = `${now.getHours().toString().padStart(2, '0')}:${now
+          .getMinutes()
+          .toString()
+          .padStart(2, '0')}`;
 
-      const db = await readDb();
-      const msgId = `wa_${msg.key.id}`;
-      if (
-        db.messages.some((m) => m.id === msgId) ||
-        sentMsgIds.has(msgId) ||
-        (msg.key?.id && sentMsgIds.has(msg.key.id))
-      ) {
-        continue;
-      }
-      sentMsgIds.add(msgId);
-      if (msg.key?.id) sentMsgIds.add(msg.key.id);
+        const db = await readDb();
+        const msgId = `wa_${msg.key.id}`;
+        if (
+          db.messages.some((m) => m.id === msgId) ||
+          sentMsgIds.has(msgId) ||
+          (msg.key?.id && sentMsgIds.has(msg.key.id))
+        ) {
+          continue;
+        }
+        sentMsgIds.add(msgId);
+        if (msg.key?.id) sentMsgIds.add(msg.key.id);
 
-      const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
-      const targetUserId = targetUser?.id || 'usr_default';
+        const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
+        const targetUserId = targetUser?.id || 'usr_default';
 
-      if (!isGroup) {
-        const phone = remoteJid.replace('@s.whatsapp.net', '');
-        const waContactId = `wa_${phone}`;
+        if (!isGroup) {
+          const phone = remoteJid.replace('@s.whatsapp.net', '');
+          const waContactId = `wa_${phone}`;
 
-        if (fromMe) {
-          // Drop echo if this text was already sent from web app to this recipient
-          const isEcho = db.messages.some(
-            (m) =>
-              m.senderId === targetUserId &&
-              (m.recipientId === waContactId || m.chatId.includes(waContactId)) &&
-              m.text === text &&
-              (m.id.startsWith('msg_') || m.sentToRealWa)
-          );
-          if (isEcho) {
-            console.log(`[Gateway] Abaikan echo balasan: "${text.slice(0, 30)}"`);
-            continue;
+          if (fromMe) {
+            // Drop echo if this text was already sent from web app to this recipient
+            const isEcho = db.messages.some(
+              (m) =>
+                m.senderId === targetUserId &&
+                (m.recipientId === waContactId || m.chatId.includes(waContactId)) &&
+                m.text === text &&
+                (m.id.startsWith('msg_') || m.sentToRealWa)
+            );
+            if (isEcho) {
+              console.log(`[Gateway] Abaikan echo balasan: "${text.slice(0, 30)}"`);
+              continue;
+            }
           }
+
+          let contact = db.users.find((u) => u.id === waContactId);
+          if (!contact) {
+            contact = {
+              id: waContactId,
+              username: `wa_${phone}`,
+              name: msg.pushName || `+${phone}`,
+              phone,
+              avatar:
+                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+              about: 'Kontak WhatsApp Asli',
+              isOnline: true,
+            };
+            db.users.push(contact);
+          }
+
+          db.messages.push({
+            id: msgId,
+            chatId: [targetUserId, waContactId].sort().join('__'),
+            senderId: fromMe ? targetUserId : waContactId,
+            recipientId: fromMe ? waContactId : targetUserId,
+            senderName: fromMe ? 'Saya' : msg.pushName || `+${phone}`,
+            type: 'text',
+            text,
+            timestamp: timeString,
+            status: 'read',
+            sentToRealWa: true,
+          });
+
+          await writeDb(db);
+          console.log(`[Gateway] Synced WA msg from +${phone}: "${text.slice(0, 30)}"`);
         }
-
-        let contact = db.users.find((u) => u.id === waContactId);
-        if (!contact) {
-          contact = {
-            id: waContactId,
-            username: `wa_${phone}`,
-            name: msg.pushName || `+${phone}`,
-            phone,
-            avatar:
-              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-            about: 'Kontak WhatsApp Asli',
-            isOnline: true,
-          };
-          db.users.push(contact);
-        }
-
-        db.messages.push({
-          id: msgId,
-          chatId: [targetUserId, waContactId].sort().join('__'),
-          senderId: fromMe ? targetUserId : waContactId,
-          recipientId: fromMe ? waContactId : targetUserId,
-          senderName: fromMe ? 'Saya' : msg.pushName || `+${phone}`,
-          type: 'text',
-          text,
-          timestamp: timeString,
-          status: 'read',
-          sentToRealWa: true,
-        });
-
-        await writeDb(db);
-        console.log(`[Gateway] Synced WA msg from +${phone}: "${text.slice(0, 30)}"`);
       }
+    } catch (err) {
+      console.warn('[Gateway] messages.upsert error:', err?.message || err);
     }
   });
 }
