@@ -31,6 +31,8 @@ export default function HomePage() {
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
+  const initialLoadDoneRef = useRef<boolean>(false);
 
   // Initialize theme & session
   useEffect(() => {
@@ -84,31 +86,105 @@ export default function HomePage() {
     }
   }, [contacts, currentUser]);
 
-  // Fetch messages between currentUser and activeContact
-  const fetchActiveMessages = useCallback(async () => {
-    if (!currentUser || !activeContactId) return;
+  // Play subtle native WhatsApp pop sound on incoming message
+  const playNotificationSound = useCallback(() => {
     try {
-      const res = await fetch(
-        `/api/messages?userA=${encodeURIComponent(currentUser.id)}&userB=${encodeURIComponent(activeContactId)}`
-      );
-      const data = await res.json();
-      if (data.success && Array.isArray(data.messages)) {
-        setMessages(data.messages);
-      }
-    } catch (err) {
-      console.warn('Error fetching messages:', err);
-    }
-  }, [currentUser, activeContactId]);
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(650, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(950, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } catch {}
+  }, []);
 
-  // Fetch groups for current user
-  const fetchUserGroups = useCallback(async () => {
+  // Universal real-time sync (catches messages from friends, strangers, groups)
+  const syncRealtimeData = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`/api/groups?userId=${encodeURIComponent(currentUser.id)}`);
+      const activeParam = activeContactId ? `&activeContactId=${encodeURIComponent(activeContactId)}` : '';
+      const res = await fetch(
+        `/api/sync?userId=${encodeURIComponent(currentUser.id)}${activeParam}&_t=${Date.now()}`,
+        {
+          cache: 'no-store',
+          headers: { Pragma: 'no-cache', 'Cache-Control': 'no-cache' },
+        }
+      );
       const data = await res.json();
-      if (data.success && Array.isArray(data.groups)) {
-        setContacts((prev) => {
-          let updated = [...prev];
+      if (!data.success) return;
+
+      // 1. Update active chat messages in real time
+      if (activeContactId && Array.isArray(data.activeMessages)) {
+        setMessages((prev) => {
+          if (
+            prev.length !== data.activeMessages.length ||
+            prev[prev.length - 1]?.id !== data.activeMessages[data.activeMessages.length - 1]?.id
+          ) {
+            return data.activeMessages;
+          }
+          return prev;
+        });
+      }
+
+      // 2. Track new incoming messages & play sound
+      if (Array.isArray(data.allUserMessages)) {
+        let hasNewIncoming = false;
+        data.allUserMessages.forEach((m: Message) => {
+          if (!seenMessageIdsRef.current.has(m.id)) {
+            seenMessageIdsRef.current.add(m.id);
+            if (m.senderId !== currentUser.id && initialLoadDoneRef.current) {
+              hasNewIncoming = true;
+            }
+          }
+        });
+        if (hasNewIncoming) {
+          playNotificationSound();
+        }
+      }
+
+      // 3. Update or instantiate contacts (including strangers and groups!)
+      setContacts((prev) => {
+        let updated = [...prev];
+
+        // A. Add any sender not yet in contacts (stranger who just sent a message)
+        if (Array.isArray(data.senders)) {
+          data.senders.forEach((sender: Partial<UserAccount>) => {
+            if (!sender.id || sender.id === currentUser.id) return;
+            const existingIdx = updated.findIndex((c) => c.id === sender.id);
+            if (existingIdx === -1) {
+              const newContact: ContactItem = {
+                id: sender.id,
+                username: sender.username,
+                name: sender.name || 'Pengguna',
+                avatar:
+                  sender.avatar ||
+                  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+                about: sender.about || 'Ada di Ini Bukan Whatsapp',
+                isOnline: sender.isOnline ?? true,
+                unreadCount: 1,
+              };
+              updated.unshift(newContact);
+            } else {
+              updated[existingIdx] = {
+                ...updated[existingIdx],
+                name: sender.name || updated[existingIdx].name,
+                avatar: sender.avatar || updated[existingIdx].avatar,
+                isOnline: sender.isOnline ?? updated[existingIdx].isOnline,
+              };
+            }
+          });
+        }
+
+        // B. Sync groups
+        if (Array.isArray(data.groups)) {
           data.groups.forEach((g: GroupChat) => {
             const idx = updated.findIndex((c) => c.id === g.id);
             if (idx !== -1) {
@@ -134,107 +210,83 @@ export default function HomePage() {
               updated.unshift(groupContact);
             }
           });
-          return updated;
-        });
-      }
-    } catch (err) {
-      console.warn('Error fetching groups:', err);
-    }
-  }, [currentUser]);
+        }
 
-  // Poll for messages every 2 seconds & sync across tabs
+        // C. Update latest message & unread status
+        if (Array.isArray(data.allUserMessages)) {
+          data.allUserMessages.forEach((msg: Message) => {
+            const isGroupMsg = msg.chatId?.startsWith('grp_') || msg.recipientId?.startsWith('grp_');
+            const targetId = isGroupMsg
+              ? (msg.chatId?.startsWith('grp_') ? msg.chatId : msg.recipientId!)
+              : (msg.senderId === currentUser.id ? msg.recipientId : msg.senderId);
+
+            if (!targetId) return;
+            const cIdx = updated.findIndex((c) => c.id === targetId);
+            if (cIdx !== -1) {
+              const currentLastMsg = updated[cIdx].lastMessage;
+              if (!currentLastMsg || currentLastMsg.timestamp <= msg.timestamp) {
+                updated[cIdx] = {
+                  ...updated[cIdx],
+                  lastMessage: {
+                    text:
+                      msg.text ||
+                      (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
+                    timestamp: msg.timestamp,
+                    type: msg.type,
+                    senderId: msg.senderId,
+                    senderName: msg.senderName,
+                    status: msg.status,
+                  },
+                };
+              }
+            }
+          });
+        }
+
+        return updated;
+      });
+
+      initialLoadDoneRef.current = true;
+    } catch (err) {
+      console.warn('Realtime sync error:', err);
+    }
+  }, [currentUser, activeContactId, playNotificationSound]);
+
+  // High-frequency polling (every 1.2s) & immediate focus/visibility wakeup
   useEffect(() => {
     if (!currentUser) return;
 
-    fetchActiveMessages();
-    fetchUserGroups();
+    syncRealtimeData();
 
-    // Broadcast channel for multi-window / multi-tab local sync
+    // Broadcast channel for multi-tab sync
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const bc = new BroadcastChannel('wa_private_chat_sync');
-      bc.onmessage = (event) => {
-        const payload = event.data;
-        if (
-          payload &&
-          (payload.recipientId === currentUser.id ||
-            payload.senderId === currentUser.id ||
-            payload.chatId?.startsWith('grp_') ||
-            payload.recipientId?.startsWith('grp_'))
-        ) {
-          fetchActiveMessages();
-          updateContactLastMessage(payload);
-        }
+      bc.onmessage = () => {
+        syncRealtimeData();
       };
       channelRef.current = bc;
     }
 
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        syncRealtimeData();
+      }
+    };
+
+    window.addEventListener('focus', onVisibilityOrFocus);
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+
     pollingTimerRef.current = setInterval(() => {
-      fetchActiveMessages();
-      fetchUserGroups();
-    }, 2000);
+      syncRealtimeData();
+    }, 1200);
 
     return () => {
       if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
       channelRef.current?.close();
     };
-  }, [currentUser, activeContactId, fetchActiveMessages, fetchUserGroups]);
-
-  const updateContactLastMessage = (msg: Message) => {
-    const isGroupMsg = msg.chatId?.startsWith('grp_') || msg.recipientId?.startsWith('grp_');
-    const targetContactId = isGroupMsg
-      ? (msg.chatId?.startsWith('grp_') ? msg.chatId : msg.recipientId!)
-      : (msg.senderId === currentUser?.id ? msg.recipientId : msg.senderId);
-
-    if (!targetContactId) return;
-
-    setContacts((prev) => {
-      const exists = prev.some((c) => c.id === targetContactId);
-      if (!exists) {
-        if (isGroupMsg) {
-          fetchUserGroups();
-          return prev;
-        }
-        if (msg.senderId && msg.senderName) {
-          const newContact: ContactItem = {
-            id: targetContactId,
-            name: msg.senderName,
-            avatar:
-              'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-            about: 'Kontak Ini Bukan Whatsapp',
-            isOnline: true,
-            unreadCount: targetContactId !== activeContactId ? 1 : 0,
-            lastMessage: {
-              text: msg.text || (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
-              timestamp: msg.timestamp,
-              type: msg.type,
-              senderId: msg.senderId,
-              status: msg.status,
-            },
-          };
-          return [newContact, ...prev];
-        }
-      }
-
-      return prev.map((c) =>
-        c.id === targetContactId
-          ? {
-              ...c,
-              lastMessage: {
-                text: msg.text || (msg.type === 'audio' ? 'Pesan Suara' : msg.type === 'image' ? 'Foto' : 'Stiker'),
-                timestamp: msg.timestamp,
-                type: msg.type,
-                senderId: msg.senderId,
-                status: msg.status,
-              },
-              unreadCount:
-                msg.senderId !== currentUser?.id && targetContactId !== activeContactId
-                  ? c.unreadCount + 1
-                  : c.unreadCount,
-            }
-          : c
-      );
-    });
-  };
+  }, [currentUser, syncRealtimeData]);
 
   const handleSendMessage = async ({
     type,
@@ -276,8 +328,9 @@ export default function HomePage() {
       const data = await res.json();
       if (data.success && data.message) {
         setMessages((prev) => [...prev, data.message]);
-        updateContactLastMessage(data.message);
+        seenMessageIdsRef.current.add(data.message.id);
         channelRef.current?.postMessage(data.message);
+        syncRealtimeData();
       }
     } catch (err) {
       console.error('Failed to send message:', err);

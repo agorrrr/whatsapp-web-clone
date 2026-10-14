@@ -61,6 +61,7 @@ export interface ContactItem {
     timestamp: string;
     type: MessageType;
     senderId: string;
+    senderName?: string;
     status?: MessageStatus;
   };
 }
