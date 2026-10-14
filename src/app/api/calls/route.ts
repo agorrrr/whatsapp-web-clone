@@ -20,12 +20,12 @@ export async function GET(req: Request) {
     const callId = searchParams.get('callId');
 
     if (callId) {
-      const call = getCallById(callId);
+      const call = await getCallById(callId);
       return NextResponse.json({ success: true, call });
     }
 
     if (userId) {
-      const call = getActiveCallForUser(userId);
+      const call = await getActiveCallForUser(userId);
       return NextResponse.json({ success: true, call });
     }
 
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
             { status: 400 }
           );
         }
-        const call = setCallOffer(callId, sdpOffer);
+        const call = await setCallOffer(callId, sdpOffer);
         return NextResponse.json({ success: true, call });
       }
 
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
             { status: 400 }
           );
         }
-        const call = answerCallSession(callId, sdpAnswer);
+        const call = await answerCallSession(callId, sdpAnswer);
         return NextResponse.json({ success: true, call });
       }
 

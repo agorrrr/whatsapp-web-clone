@@ -69,7 +69,7 @@ export async function GET(req: Request) {
         allUserMessages,
         senders,
         groups,
-        activeCall: getActiveCallForUser(userId),
+        activeCall: await getActiveCallForUser(userId),
         serverTime: Date.now(),
       },
       {

@@ -1,5 +1,5 @@
 import { CallSession, CallType, CallStatus, Message } from '../types/chat';
-import { findUserById, saveMessage, getChatRoomId } from './db';
+import { findUserById, saveMessage, getChatRoomId, readDb, writeDb } from './db';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -80,10 +80,21 @@ export async function startCallSession({
   };
 
   activeCalls.set(callId, session);
+
+  try {
+    const db = await readDb();
+    if (!db.activeCalls) db.activeCalls = [];
+    db.activeCalls = db.activeCalls.filter(
+      (c) => Date.now() - c.updatedAt < 120000 && c.status !== 'ended' && c.status !== 'rejected'
+    );
+    db.activeCalls.push(session);
+    writeDb(db).catch(() => {});
+  } catch {}
+
   return session;
 }
 
-export function getActiveCallForUser(userId: string): CallSession | null {
+export async function getActiveCallForUser(userId: string): Promise<CallSession | null> {
   pruneOldCalls();
   let found: CallSession | null = null;
   activeCalls.forEach((call) => {
@@ -95,30 +106,103 @@ export function getActiveCallForUser(userId: string): CallSession | null {
       found = call;
     }
   });
-  return found;
+  if (found) return found;
+
+  try {
+    const db = await readDb();
+    if (Array.isArray(db.activeCalls)) {
+      const now = Date.now();
+      const match = db.activeCalls.find(
+        (c) =>
+          (c.callerId === userId || c.receiverId === userId) &&
+          (c.status === 'ringing' || c.status === 'connected') &&
+          now - c.updatedAt < 120000
+      );
+      if (match) {
+        activeCalls.set(match.id, match);
+        return match;
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
-export function getCallById(callId: string): CallSession | null {
-  return activeCalls.get(callId) || null;
+export async function getCallById(callId: string): Promise<CallSession | null> {
+  const inMem = activeCalls.get(callId);
+  if (inMem) return inMem;
+
+  try {
+    const db = await readDb();
+    const match = db.activeCalls?.find((c) => c.id === callId);
+    if (match) {
+      activeCalls.set(match.id, match);
+      return match;
+    }
+  } catch {}
+
+  return null;
 }
 
-export function setCallOffer(callId: string, sdpOffer: string): CallSession {
-  const call = activeCalls.get(callId);
+export async function setCallOffer(callId: string, sdpOffer: string): Promise<CallSession> {
+  let call = activeCalls.get(callId);
+  if (!call) {
+    try {
+      const db = await readDb();
+      call = db.activeCalls?.find((c) => c.id === callId);
+    } catch {}
+  }
   if (!call) throw new Error('Panggilan tidak ditemukan');
 
   call.sdpOffer = sdpOffer;
   call.updatedAt = Date.now();
+  activeCalls.set(callId, call);
+
+  try {
+    const db = await readDb();
+    if (db.activeCalls) {
+      const idx = db.activeCalls.findIndex((c) => c.id === callId);
+      if (idx !== -1) {
+        db.activeCalls[idx] = call;
+      } else {
+        db.activeCalls.push(call);
+      }
+      writeDb(db).catch(() => {});
+    }
+  } catch {}
+
   return call;
 }
 
-export function answerCallSession(callId: string, sdpAnswer: string): CallSession {
-  const call = activeCalls.get(callId);
+export async function answerCallSession(callId: string, sdpAnswer: string): Promise<CallSession> {
+  let call = activeCalls.get(callId);
+  if (!call) {
+    try {
+      const db = await readDb();
+      call = db.activeCalls?.find((c) => c.id === callId);
+    } catch {}
+  }
   if (!call) throw new Error('Panggilan tidak ditemukan');
 
   call.status = 'connected';
   call.startedAt = Date.now();
   call.sdpAnswer = sdpAnswer;
   call.updatedAt = Date.now();
+  activeCalls.set(callId, call);
+
+  try {
+    const db = await readDb();
+    if (db.activeCalls) {
+      const idx = db.activeCalls.findIndex((c) => c.id === callId);
+      if (idx !== -1) {
+        db.activeCalls[idx] = call;
+      } else {
+        db.activeCalls.push(call);
+      }
+      writeDb(db).catch(() => {});
+    }
+  } catch {}
+
   return call;
 }
 
@@ -196,6 +280,14 @@ export async function endCallSession(
   } catch (err) {
     console.warn('[CallManager] Failed to record call in history:', err);
   }
+
+  try {
+    const db = await readDb();
+    if (db.activeCalls) {
+      db.activeCalls = db.activeCalls.filter((c) => c.id !== callId);
+      writeDb(db).catch(() => {});
+    }
+  } catch {}
 
   return call;
 }

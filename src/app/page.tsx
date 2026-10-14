@@ -508,6 +508,7 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'offer', callId, sdpOffer }),
       });
+      setActiveCall((prev) => (prev && prev.id === callId ? { ...prev, sdpOffer } : prev));
       channelRef.current?.postMessage({ type: 'call_offer', callId, sdpOffer });
     } catch (err) {
       console.error('Send offer error:', err);

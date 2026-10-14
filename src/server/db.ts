@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { UserAccount, Message, GroupChat, GroupMember } from '../types/chat';
+import { UserAccount, Message, GroupChat, GroupMember, CallSession } from '../types/chat';
 
 // Cloud Gist database configuration for persistent Vercel serverless execution
 const GIST_ID = process.env.GIST_ID || '9d6bf54cf48dffbca905eff3a3a4fa45';
@@ -13,12 +13,14 @@ interface DatabaseSchema {
   users: UserAccount[];
   messages: Message[];
   groups?: GroupChat[];
+  activeCalls?: CallSession[];
 }
 
 let inMemoryCache: DatabaseSchema = {
   users: [],
   messages: [],
   groups: [],
+  activeCalls: [],
 };
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 2500;
@@ -68,6 +70,7 @@ export async function readDb(): Promise<DatabaseSchema> {
                 users: Array.isArray(parsed.users) ? parsed.users : [],
                 messages: Array.isArray(parsed.messages) ? parsed.messages : [],
                 groups: Array.isArray(parsed.groups) ? parsed.groups : [],
+                activeCalls: Array.isArray(parsed.activeCalls) ? parsed.activeCalls : [],
               };
               lastFetchTime = Date.now();
               return inMemoryCache;
@@ -87,6 +90,7 @@ export async function readDb(): Promise<DatabaseSchema> {
             users: Array.isArray(parsed.users) ? parsed.users : [],
             messages: Array.isArray(parsed.messages) ? parsed.messages : [],
             groups: Array.isArray(parsed.groups) ? parsed.groups : [],
+            activeCalls: Array.isArray(parsed.activeCalls) ? parsed.activeCalls : [],
           };
           return inMemoryCache;
         }

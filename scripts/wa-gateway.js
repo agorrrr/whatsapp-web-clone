@@ -8,7 +8,8 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { execFile, execFileSync } = require('child_process');
 const QRCode = require('qrcode');
 const pino = require('pino');
 
@@ -61,6 +62,176 @@ function getAuthFolder() {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+// --- AIKU ANTIGRAVITY INTEGRATION ---
+const AIKU_GROUP_ID = '120363413642117064@g.us';
+const AIKU_CONVERSATION_ID = '2bfe9dd6-95e9-4bb3-b4d2-95265bf830a7';
+const AIWA_DIR = 'C:\\Users\\rezam\\Documents\\AIWA';
+const AIWA_DOWNLOADS = path.join(AIWA_DIR, 'downloads');
+if (!fs.existsSync(AIWA_DOWNLOADS)) fs.mkdirSync(AIWA_DOWNLOADS, { recursive: true });
+
+let aikuQueue = Promise.resolve();
+function enqueueAiku(fn) {
+  aikuQueue = aikuQueue.then(fn).catch((e) => console.error('[Aiku Queue Error]', e));
+}
+
+const TEXT_EXTS = new Set([
+  'txt', 'csv', 'json', 'xml', 'yaml', 'yml', 'md', 'log',
+  'py', 'js', 'ts', 'html', 'css', 'sql', 'sh', 'bat', 'ps1',
+  'env', 'ini', 'conf', 'java', 'c', 'cpp', 'h', 'php', 'rb', 'go', 'rs'
+]);
+
+function unwrapAikuMessage(m) {
+  if (!m) return null;
+  if (m.ephemeralMessage) return unwrapAikuMessage(m.ephemeralMessage.message);
+  if (m.viewOnceMessage) return unwrapAikuMessage(m.viewOnceMessage.message);
+  if (m.viewOnceMessageV2) return unwrapAikuMessage(m.viewOnceMessageV2.message);
+  if (m.documentWithCaptionMessage) return unwrapAikuMessage(m.documentWithCaptionMessage.message);
+  return m;
+}
+
+function extractAikuText(msg) {
+  const m = unwrapAikuMessage(msg.message);
+  if (!m) return '';
+  return (
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.documentMessage?.caption ||
+    m.videoMessage?.caption ||
+    ''
+  ).trim();
+}
+
+async function downloadAikuAttachment(msg) {
+  const m = unwrapAikuMessage(msg.message);
+  if (!m) return null;
+
+  const mediaMsg = m.imageMessage || m.documentMessage || m.videoMessage || m.audioMessage;
+  if (!mediaMsg) return null;
+
+  let ext = '';
+  let rawName = mediaMsg.fileName || '';
+  if (m.imageMessage) ext = 'jpg';
+  else if (m.audioMessage) ext = 'ogg';
+  else if (m.videoMessage) ext = 'mp4';
+  else if (rawName) ext = path.extname(rawName).slice(1) || 'bin';
+  else ext = 'bin';
+
+  ext = ext.toLowerCase();
+  const safeName = rawName ? rawName.replace(/[^a-zA-Z0-9._-]/g, '_') : `media_${Date.now()}.${ext}`;
+  const fileName = `${Date.now()}_${safeName}`;
+  const filePath = path.join(AIWA_DOWNLOADS, fileName);
+
+  try {
+    const buffer = await downloadMediaMessage(
+      msg,
+      'buffer',
+      {},
+      {
+        logger: pino({ level: 'silent' }),
+        reuploadRequest: sock?.updateMediaMessage,
+      }
+    );
+    fs.writeFileSync(filePath, buffer);
+    return { filePath, fileName: safeName, ext, isImage: Boolean(m.imageMessage) };
+  } catch (err) {
+    console.error('[Aiku Download Gagal]:', err.message);
+    return null;
+  }
+}
+
+function extractAikuFileContent(filePath, ext) {
+  if (TEXT_EXTS.has(ext)) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return content.slice(0, 40000);
+    } catch {
+      return null;
+    }
+  }
+
+  if (['pdf', 'docx', 'xlsx'].includes(ext)) {
+    try {
+      const pyScript = path.join(AIWA_DIR, 'parse_file.py');
+      const out = execFileSync('python', [pyScript, filePath], { encoding: 'utf-8', timeout: 20000 });
+      return out.trim().slice(0, 40000);
+    } catch (err) {
+      console.warn('[Aiku Parser Gagal]:', err.message);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function askAntigravity(prompt, conversationId) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'agy.exe',
+      [
+        '--conversation', conversationId,
+        '--dangerously-skip-permissions',
+        '-p', prompt,
+        '--output-format', 'text',
+      ],
+      { timeout: 180000, cwd: AIWA_DIR },
+      (err, stdout, stderr) => {
+        if (err) return reject(err);
+        let text = stdout.trim().replace(/^warning:.*\r?\n/gi, '').trim();
+        resolve(text);
+      }
+    );
+  });
+}
+
+async function handleAikuMessage(msg, remoteJid) {
+  enqueueAiku(async () => {
+    try {
+      await sock.sendPresenceUpdate('composing', remoteJid);
+      const userText = extractAikuText(msg);
+      const senderName = msg.pushName || 'Member';
+      const attachment = await downloadAikuAttachment(msg);
+
+      if (!attachment && !userText) {
+        await sock.sendPresenceUpdate('paused', remoteJid);
+        return;
+      }
+
+      let prompt = '';
+      if (attachment) {
+        console.log(`[Aiku] Lampiran masuk dari ${senderName}: ${attachment.fileName} (${attachment.ext})`);
+        const fileContent = extractAikuFileContent(attachment.filePath, attachment.ext);
+
+        if (fileContent) {
+          prompt = `[User melampirkan file: "${attachment.fileName}"]\nPath: ${attachment.filePath}\nIsi file (${attachment.ext.toUpperCase()}):\n---\n${fileContent}\n---\n${senderName}: ${userText || 'Tolong baca dan analisis isi file yang saya lampirkan ini.'}`;
+        } else if (attachment.isImage) {
+          prompt = `[User melampirkan gambar: "${attachment.fileName}"]\nPath lokal: ${attachment.filePath}\n(Gunakan tool view_file untuk membaca gambar bila perlu)\n${senderName}: ${userText || 'Tolong lihat dan analisis gambar yang saya lampirkan ini.'}`;
+        } else {
+          prompt = `[User melampirkan file: "${attachment.fileName}"]\nPath lokal: ${attachment.filePath}\n${senderName}: ${userText || 'Tolong periksa file yang saya lampirkan ini.'}`;
+        }
+      } else {
+        console.log(`[Aiku] Pesan masuk dari ${senderName}: ${userText}`);
+        prompt = `${senderName}: ${userText}`;
+      }
+
+      const reply = await askAntigravity(prompt, AIKU_CONVERSATION_ID);
+      if (reply) {
+        const sent = await sock.sendMessage(remoteJid, { text: reply }, { quoted: msg });
+        if (sent?.key?.id) {
+          sentMsgIds.add(sent.key.id);
+          sentMsgIds.add(`wa_${sent.key.id}`);
+        }
+        console.log(`[Aiku] Balasan Antigravity Terkirim:\n${reply}\n`);
+      }
+    } catch (err) {
+      console.error('[Aiku Gagal Proses Pesan]:', err.message);
+    } finally {
+      await sock.sendPresenceUpdate('paused', remoteJid);
+    }
+  });
+}
+// --- END AIKU INTEGRATION ---
 
 // Fetch database from Gist
 async function readDb() {
@@ -320,6 +491,13 @@ async function startBaileys() {
 
         const targetUser = db.users.find((u) => u.username === 'ezakasep') || db.users[0];
         const targetUserId = targetUser?.id || 'usr_default';
+
+        if (isGroup) {
+          if (remoteJid === AIKU_GROUP_ID && !fromMe) {
+            handleAikuMessage(msg, remoteJid);
+          }
+          continue;
+        }
 
         if (!isGroup) {
           const phone = remoteJid.replace('@s.whatsapp.net', '');
