@@ -54,30 +54,47 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(currentUser.phone || '');
   const [syncingProfile, setSyncingProfile] = useState(false);
+  const [qrCountdown, setQrCountdown] = useState(45);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null
   );
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Poll status from /api/baileys
+  // Poll status from /api/baileys without losing existing QR code during handshakes
   const fetchStatus = async () => {
     try {
       const res = await fetch(`/api/baileys?_t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       if (data.success) {
-        setStatusData({
-          status: data.status,
-          qrCode: data.qrCode,
-          pairingCode: data.pairingCode,
-          user: data.user,
-          lastError: data.lastError,
-          connectedAt: data.connectedAt,
+        setStatusData((prev) => {
+          // If server reports new QR code, reset countdown
+          if (data.qrCode && data.qrCode !== prev.qrCode) {
+            setQrCountdown(45);
+          }
+          return {
+            status: data.status,
+            // Keep previous QR code so it doesn't flicker or disappear
+            qrCode: data.qrCode || prev.qrCode,
+            pairingCode: data.pairingCode || prev.pairingCode,
+            user: data.user,
+            lastError: data.lastError,
+            connectedAt: data.connectedAt,
+          };
         });
       }
     } catch {}
   };
 
-  // Start connection and poll
+  // Countdown timer for QR code validity
+  useEffect(() => {
+    if (activeTab !== 'qr' || !statusData.qrCode || statusData.status === 'connected') return;
+    const timer = setInterval(() => {
+      setQrCountdown((prev) => (prev > 1 ? prev - 1 : 45));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeTab, statusData.qrCode, statusData.status]);
+
+  // Start connection once on mount
   const triggerConnect = async (force = false) => {
     setLoading(true);
     setFeedbackMsg(null);
@@ -210,7 +227,7 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
 
     pollTimerRef.current = setInterval(() => {
       fetchStatus();
-    }, 1800);
+    }, 3000);
 
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
@@ -382,11 +399,17 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                 <div className="flex flex-col items-center justify-center text-center space-y-3">
                   <div className="relative p-3 bg-white rounded-2xl shadow-md border border-[#e9edef] flex items-center justify-center min-w-[220px] min-h-[220px]">
                     {statusData.qrCode ? (
-                      <img
-                        src={statusData.qrCode}
-                        alt="WhatsApp QR Code"
-                        className="w-56 h-56 rounded-lg object-contain"
-                      />
+                      <div className="flex flex-col items-center">
+                        <img
+                          src={statusData.qrCode}
+                          alt="WhatsApp QR Code"
+                          className="w-56 h-56 rounded-lg object-contain"
+                        />
+                        <div className="mt-2 flex items-center space-x-1.5 text-[11px] text-[#00a884] dark:text-[#25d366] font-semibold bg-[#00a884]/10 px-3 py-1 rounded-full">
+                          <span className="w-2 h-2 rounded-full bg-[#25d366] animate-pulse"></span>
+                          <span>QR Siap di-scan &middot; sisa {qrCountdown}s</span>
+                        </div>
+                      </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center text-[#8696a0] p-6 space-y-2">
                         <RefreshCw className="w-8 h-8 animate-spin text-[#00a884]" />
@@ -399,9 +422,20 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                     )}
                   </div>
 
+                  {/* Recommendation: Pairing Code */}
+                  <div className="w-full bg-[#00a884]/10 border border-[#00a884]/30 rounded-xl p-3 text-left space-y-1">
+                    <div className="flex items-center space-x-1.5 text-xs font-bold text-[#008069] dark:text-[#25d366]">
+                      <Smartphone className="w-4 h-4 flex-shrink-0" />
+                      <span>Scan QR gagal / terburu-buru? Gunakan Kode Pairing</span>
+                    </div>
+                    <p className="text-[11px] text-[#54656f] dark:text-[#aebac1]">
+                      Pindah ke tab <b>"Kode Pairing (8 Digit)"</b> di atas. Cukup masukkan nomor HP WhatsApp Anda, lalu ketik kode 8 digit di WhatsApp ponsel tanpa perlu kamera!
+                    </p>
+                  </div>
+
                   <div className="text-xs text-[#54656f] dark:text-[#aebac1] max-w-xs space-y-1">
                     <p className="font-semibold text-[#111b21] dark:text-[#e9edef]">
-                      Cara Menghubungkan:
+                      Cara Scan QR:
                     </p>
                     <ol className="text-left text-[11px] list-decimal list-inside space-y-0.5 text-[#8696a0]">
                       <li>Buka WhatsApp di ponsel Anda</li>
@@ -418,7 +452,7 @@ export const SyncRealWaModal: React.FC<SyncRealWaModalProps> = ({
                     className="px-3.5 py-1.5 rounded-lg border border-[#e9edef] dark:border-[#222e35] text-xs text-[#00a884] hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-1.5 transition-colors"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                    <span>Muat Ulang QR</span>
+                    <span>Muat Ulang QR Manual</span>
                   </button>
                 </div>
               ) : (

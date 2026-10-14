@@ -8,7 +8,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const pino = require('pino');
 
@@ -100,8 +100,10 @@ async function startBaileys(phoneForPairing = null) {
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: true,
-    browser: ['Ini Bukan Whatsapp Gateway', 'Chrome', '1.0.0'],
+    browser: Browsers.ubuntu('Chrome'),
     syncFullHistory: false,
+    qrTimeout: 45000,
+    connectTimeoutMs: 60000,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -142,8 +144,9 @@ async function startBaileys(phoneForPairing = null) {
         connectedUser = null;
         console.log('[Gateway] Logged out from WhatsApp');
       } else if (shouldReconnect) {
-        console.log('[Gateway] Connection closed, reconnecting in 5s...');
-        setTimeout(() => startBaileys(), 5000);
+        const delay = connectionStatus === 'qrcode' ? 25000 : 5000;
+        console.log(`[Gateway] Connection closed, waiting ${delay / 1000}s before reconnect...`);
+        setTimeout(() => startBaileys(), delay);
       }
     }
   });

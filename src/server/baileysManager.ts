@@ -3,6 +3,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   WASocket,
   proto,
+  Browsers,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -209,10 +210,13 @@ export async function connectBaileys(options?: {
       auth: authState,
       logger,
       printQRInTerminal: false,
-      browser: ['Ini Bukan Whatsapp', 'Chrome', '1.0.0'],
+      browser: Browsers.ubuntu('Chrome'),
       syncFullHistory: false,
-      generateHighQualityLinkPreview: true,
-      defaultQueryTimeoutMs: 60000,
+      generateHighQualityLinkPreview: false,
+      defaultQueryTimeoutMs: 90000,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000,
+      qrTimeout: 45000,
     });
 
     global.__baileysSocket = sock;
@@ -294,13 +298,14 @@ export async function connectBaileys(options?: {
           state.lastError = 'Sesi WhatsApp telah logout dari ponsel.';
           global.__baileysSocket = null;
         } else if (shouldReconnect) {
+          // If waiting for QR, wait at least 30s so user has plenty of time to scan
+          const reconnectDelay = state.status === 'qrcode' ? 30000 : 5000;
           state.status = 'connecting';
-          // Auto reconnect after short delay
           setTimeout(() => {
-            if (state.status !== 'disconnected') {
+            if (state.status !== 'disconnected' && state.status !== 'connected') {
               connectBaileys({ userId: state.linkedUserId || undefined });
             }
-          }, 3000);
+          }, reconnectDelay);
         } else {
           state.status = 'error';
           state.lastError = error?.message || 'Koneksi WhatsApp terputus.';
