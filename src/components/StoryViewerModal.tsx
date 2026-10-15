@@ -92,10 +92,17 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+      if (isInput) return;
+
       if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowRight') handleNext();
       if (e.key === 'ArrowLeft') handlePrev();
-      if (e.key === ' ') setIsPaused((p) => !p);
+      if (e.key === ' ') {
+        e.preventDefault();
+        setIsPaused((p) => !p);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -284,7 +291,14 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = ({
               <span className="text-white/60">Hilang dalam 24 jam</span>
             </div>
           ) : (
-            <form onSubmit={handleSendQuickReply} className="flex items-center space-x-2">
+            <form
+              onSubmit={handleSendQuickReply}
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              className="flex items-center space-x-2"
+            >
               <input
                 type="text"
                 value={replyText}

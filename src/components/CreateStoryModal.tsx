@@ -46,15 +46,49 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       return;
     }
 
-    if (file.size > 8 * 1024 * 1024) {
-      setErrorMsg('Ukuran file maksimal 8MB.');
+    if (file.size > 15 * 1024 * 1024) {
+      setErrorMsg('Ukuran file maksimal 15MB.');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
-      setImageUrl(reader.result as string);
-      setErrorMsg('');
+      const rawData = reader.result as string;
+      // Auto compress image to max 1280px dimension to prevent Vercel 4.5MB payload limit
+      const img = new Image();
+      img.onload = () => {
+        const MAX_DIM = 1280;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          setImageUrl(compressedDataUrl);
+        } else {
+          setImageUrl(rawData);
+        }
+        setErrorMsg('');
+      };
+      img.onerror = () => {
+        setImageUrl(rawData);
+        setErrorMsg('');
+      };
+      img.src = rawData;
     };
     reader.readAsDataURL(file);
   };

@@ -122,13 +122,14 @@ export async function POST(req: Request) {
       }
 
       case 'view': {
-        if (!storyId || !viewerUserId) {
+        const viewer = viewerUserId || body.viewerId;
+        if (!storyId || !viewer) {
           return NextResponse.json(
-            { success: false, message: 'storyId dan viewerUserId wajib diisi' },
+            { success: false, message: 'storyId dan viewerId wajib diisi' },
             { status: 400 }
           );
         }
-        await viewStory(storyId, viewerUserId);
+        await viewStory(storyId, viewer);
         return NextResponse.json({ success: true });
       }
 

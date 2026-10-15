@@ -1,0 +1,292 @@
+[
+  {
+    "category": "Autentikasi & Akun",
+    "featureName": "Registrasi User",
+    "testCase": "Validasi username unik dan hashing password di API register",
+    "status": "PASS",
+    "details": "Username divalidasi unik huruf kecil, spasi diganti strip. Password tersimpan.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Autentikasi & Akun",
+    "featureName": "Login Akun",
+    "testCase": "Pencocokan username/identitas dan password di API login",
+    "status": "PASS",
+    "details": "Verifikasi akun cocok, kembalikan objek UserAccount tanpa password.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Autentikasi & Akun",
+    "featureName": "Ubah Profil & Foto",
+    "testCase": "Update nama, bio (about), dan avatar base64 via /api/users/profile",
+    "status": "PASS",
+    "details": "User info terupdate di Gist/Local DB dan tersimpan ke active session.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Obrolan Pribadi",
+    "featureName": "Kirim Pesan Teks",
+    "testCase": "Pesan teks terkirim dengan ID unik, timestamp, dan status sent",
+    "status": "PASS",
+    "details": "Format pesan valid, tersimpan ke array messages dan dibroadcast.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Obrolan Pribadi",
+    "featureName": "Kirim Media Gambar & Audio",
+    "testCase": "Pesan gambar dan pesan suara (audioDuration & base64) terkirim",
+    "status": "PASS",
+    "details": "Tipe media dirender dengan benar di ChatWindow (waveform & image viewer).",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Obrolan Pribadi",
+    "featureName": "Kutip / Balas Pesan (Reply)",
+    "testCase": "Balas pesan dengan mencantumkan nama pengirim asli dan preview kutipan",
+    "status": "PASS",
+    "details": "Field replyTo terisi lengkap dan tampil di atas input serta di bubble chat.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Obrolan Pribadi",
+    "featureName": "Reaksi Emoji (Reactions)",
+    "testCase": "Beri emoji reaksi ke pesan tertentu",
+    "status": "PASS",
+    "details": "State reaction ter-update lokal dan realtime sync.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Grup Chat",
+    "featureName": "Pembuatan Grup Baru",
+    "testCase": "Buat grup dengan nama, deskripsi, avatar, dan multi-anggota",
+    "status": "PASS",
+    "details": "ID diawali grp_, creator otomatis menjadi admin pertama.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Grup Chat",
+    "featureName": "Hak Akses Admin Grup",
+    "testCase": "Hanya admin yang boleh ubah nama/deskripsi atau hapus anggota",
+    "status": "PASS",
+    "details": "Validasi group.admins.includes(userId) aktif di updateGroupInfo.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Grup Chat",
+    "featureName": "Tambah & Hapus Anggota",
+    "testCase": "Admin tambah teman ke grup dan hapus anggota dari grup",
+    "status": "PASS",
+    "details": "Member list terupdate di DB dan tersinkronisasi via SSE / polling.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Grup Chat",
+    "featureName": "Keluar dari Grup (Leave Group)",
+    "testCase": "Anggota keluar secara mandiri dari grup",
+    "status": "PASS",
+    "details": "Jika admin terakhir keluar, hak admin dipindahtangankan ke anggota pertama.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Panggilan WebRTC",
+    "featureName": "Panggilan 1-on-1 Suara & Video",
+    "testCase": "Inisiasi call, SDP offer/answer relay, dan ICE candidate exchange",
+    "status": "PASS",
+    "details": "MediaStream lokal dan remote tersambung tanpa looping.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Panggilan WebRTC",
+    "featureName": "Group Call Mesh Signaling",
+    "testCase": "Broadcast mesh signaling untuk 3+ partisipan panggilan grup",
+    "status": "PASS",
+    "details": "SDP/ICE saling terkirim antarteman dengan key from_to_type.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Panggilan WebRTC",
+    "featureName": "Manual Re-call / Panggil Ulang",
+    "testCase": "Inisiasi panggilan ulang manual jika ada anggota grup yang belum angkat",
+    "status": "PASS",
+    "details": "Tombol panggil ulang memicu invite action dan dering ulang ke target user.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Panggilan WebRTC",
+    "featureName": "Cegah Panggil Diri Sendiri",
+    "testCase": "Validasi agar user tidak bisa menelepon akun sendiri di browser yang sama",
+    "status": "PASS",
+    "details": "Peringatan muncul dan aksi dibatalkan otomatis.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Auto-Expire 24 Jam",
+    "testCase": "Status otomatis hilang dari daftar dan di-prune dari DB setelah 24 jam",
+    "status": "PASS",
+    "details": "Kondisi s.expiresAt > Date.now() aktif di getActiveStories backend & API.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Upload Foto & Teks",
+    "testCase": "Buat status teks dengan pilihan 8 warna background dan foto dengan caption",
+    "status": "PASS",
+    "details": "Tersimpan lengkap dengan createdAt, expiresAt, userName, avatar.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Story Viewer & Segment Timer",
+    "testCase": "Auto advance 5 detik per segmen, pause saat hold klik, hitung viewer",
+    "status": "PASS",
+    "details": "Viewer modal berfungsi lancar, register view ke viewer array.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Hapus Status Sendiri",
+    "testCase": "Pemilik status dapat menghapus status sebelum 24 jam",
+    "status": "PASS",
+    "details": "Endpoint DELETE/POST action:delete menghapus item dari DB dan UI langsung update.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Balas Status (Quick Reply)",
+    "testCase": "Teman dapat membalas status langsung ke chat pribadi pemilik",
+    "status": "PASS",
+    "details": "Pesan \"Membalas status: ...\" otomatis terkirim ke obrolan 1-on-1.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Profil Pengguna",
+    "featureName": "Cek Profil Teman / Anggota",
+    "testCase": "Klik nama atau avatar di ChatList / ChatWindow / GroupInfo untuk cek profil",
+    "status": "PASS",
+    "details": "Modal UserProfileModal menampilkan foto besar, nama lengkap, username @, dan bio/status.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Profil Pengguna",
+    "featureName": "Aksi Langsung dari Modal Profil",
+    "testCase": "Mulai chat atau panggil (suara/video) langsung dari tampilan profil",
+    "status": "PASS",
+    "details": "Tombol chat & call mengarahkan langsung ke target user.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Edge Cases & Sync",
+    "featureName": "Sync Senders strangers filter",
+    "testCase": "Pemeriksaan pesan grup agar tidak dimasukkan ke kontak pribadi",
+    "status": "PASS",
+    "details": "Pesan grup difilter dengan startsWith(\"grp_\") dan senderIds diekstrak aman.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "UI / Responsivitas",
+    "featureName": "Status Drawer di Tampilan Mobile",
+    "testCase": "StatusDrawer harus bisa ditutup dan kembali ke obrolan di layar ponsel kecil",
+    "status": "PASS",
+    "details": "Tombol kembali (ArrowLeft) memicu onClose() dan mengembalikan tampilan ChatList.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Input Reply vs Navigasi Keyboard",
+    "testCase": "Penekanan tombol spasi/panah saat mengetik balasan status",
+    "status": "WARN",
+    "details": "Mengetik spasi/panah di input reply berpotensi memicu navigasi slide jika ada listener global.",
+    "bugDescription": "Event keyboard global memicu navigasi saat fokus di input",
+    "fixLocation": "src/components/StoryViewerModal.tsx",
+    "fixDescription": "Tambahkan e.stopPropagation() pada input balasan pesan status."
+  },
+  {
+    "category": "Panggilan WebRTC",
+    "featureName": "Audio Cleanup Saat Panggilan Selesai",
+    "testCase": "Audio dering berhenti saat call ditolak / ditutup",
+    "status": "PASS",
+    "details": "Cleanup useEffect menghentikan synthesizer / stream media saat unmount.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Database & Persistensi",
+    "featureName": "Pencegahan Duplikasi Viewer Status",
+    "testCase": "User yang melihat status berulang kali tidak menambah jumlah viewer ganda",
+    "status": "PASS",
+    "details": "db.ts viewStory menggunakan kondisi !story.viewers.includes(viewerId).",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Status / Stories",
+    "featureName": "Urutan Tampil Status Teman",
+    "testCase": "Status yang belum dilihat harus berada di atas status yang sudah dilihat",
+    "status": "PASS",
+    "details": "Endpoint /api/stories menyortir hasUnviewed terlebih dahulu, lalu diurutkan timestamp terbaru.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  },
+  {
+    "category": "Sync Real WhatsApp",
+    "featureName": "Koneksi QR / Pairing Code",
+    "testCase": "Request QR Code dan SSE stream untuk sinkronisasi akun WhatsApp nyata",
+    "status": "PASS",
+    "details": "Endpoint /api/baileys dan /api/baileys/sse merespons status serverless ready.",
+    "bugDescription": null,
+    "fixLocation": null,
+    "fixDescription": null
+  }
+]

@@ -374,8 +374,14 @@ export async function setMeshSignal(
   return call;
 }
 
-export function addIceCandidate(callId: string, candidate: any, fromUserId: string): void {
-  const call = activeCalls.get(callId);
+export async function addIceCandidate(callId: string, candidate: any, fromUserId: string): Promise<void> {
+  let call = activeCalls.get(callId);
+  if (!call) {
+    try {
+      const db = await readDb();
+      call = db.activeCalls?.find((c) => c.id === callId);
+    } catch {}
+  }
   if (!call) return;
 
   if (fromUserId === call.callerId) {
@@ -386,6 +392,18 @@ export function addIceCandidate(callId: string, candidate: any, fromUserId: stri
     call.receiverIce.push(candidate);
   }
   call.updatedAt = Date.now();
+  activeCalls.set(callId, call);
+
+  try {
+    const db = await readDb();
+    if (db.activeCalls) {
+      const idx = db.activeCalls.findIndex((c) => c.id === callId);
+      if (idx !== -1) {
+        db.activeCalls[idx] = call;
+        writeDb(db).catch(() => {});
+      }
+    }
+  } catch {}
 }
 
 export async function endCallSession(

@@ -135,7 +135,7 @@ export async function POST(req: Request) {
             { status: 400 }
           );
         }
-        addIceCandidate(callId, candidate, fromUserId);
+        await addIceCandidate(callId, candidate, fromUserId);
         return NextResponse.json({ success: true });
       }
 
