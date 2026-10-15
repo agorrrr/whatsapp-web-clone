@@ -5,6 +5,9 @@ import {
   getCallById,
   setCallOffer,
   answerCallSession,
+  joinGroupCallSession,
+  inviteParticipantToCall,
+  setMeshSignal,
   addIceCandidate,
   endCallSession,
 } from '../../../server/callManager';
@@ -41,7 +44,20 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, callerId, receiverId, type, callId, sdpOffer, sdpAnswer, candidate, fromUserId, reason } = body;
+    const {
+      action,
+      callerId,
+      receiverId,
+      type,
+      callId,
+      sdpOffer,
+      sdpAnswer,
+      candidate,
+      fromUserId,
+      reason,
+      user,
+      userId,
+    } = body;
 
     switch (action) {
       case 'start': {
@@ -73,7 +89,42 @@ export async function POST(req: Request) {
             { status: 400 }
           );
         }
-        const call = await answerCallSession(callId, sdpAnswer);
+        const call = await answerCallSession(callId, sdpAnswer, user);
+        return NextResponse.json({ success: true, call });
+      }
+
+      case 'join': {
+        if (!callId || !user) {
+          return NextResponse.json(
+            { success: false, message: 'callId dan user wajib diisi' },
+            { status: 400 }
+          );
+        }
+        const call = await joinGroupCallSession(callId, user, sdpAnswer);
+        return NextResponse.json({ success: true, call });
+      }
+
+      case 'invite': {
+        const targetUserId = body.targetUserId;
+        if (!callId || !targetUserId) {
+          return NextResponse.json(
+            { success: false, message: 'callId dan targetUserId wajib diisi' },
+            { status: 400 }
+          );
+        }
+        const call = await inviteParticipantToCall(callId, targetUserId);
+        return NextResponse.json({ success: true, call });
+      }
+
+      case 'mesh_signal': {
+        const signal = body.signal;
+        if (!callId || !signal || !signal.fromUserId || !signal.toUserId || !signal.sdp) {
+          return NextResponse.json(
+            { success: false, message: 'callId and valid signal object required' },
+            { status: 400 }
+          );
+        }
+        const call = await setMeshSignal(callId, signal);
         return NextResponse.json({ success: true, call });
       }
 
@@ -92,7 +143,7 @@ export async function POST(req: Request) {
         if (!callId) {
           return NextResponse.json({ success: false, message: 'callId wajib diisi' }, { status: 400 });
         }
-        const call = await endCallSession(callId, reason || 'ended');
+        const call = await endCallSession(callId, reason || 'ended', userId || fromUserId);
         return NextResponse.json({ success: true, call });
       }
 

@@ -325,6 +325,20 @@ export default function HomePage() {
             };
           });
           return;
+        } else if (event.data?.type === 'call_mesh_signal') {
+          const { callId, signal } = event.data;
+          setActiveCall((prev) => {
+            if (!prev || prev.id !== callId) return prev;
+            const key = `${signal.fromUserId}_${signal.toUserId}_${signal.type}`;
+            return {
+              ...prev,
+              meshSignals: {
+                ...(prev.meshSignals || {}),
+                [key]: { ...signal, updatedAt: Date.now() },
+              },
+            };
+          });
+          return;
         } else if (event.data?.type === 'call_end') {
           setActiveCall(null);
         }
@@ -469,6 +483,7 @@ export default function HomePage() {
           action: 'answer',
           callId,
           sdpAnswer,
+          user: currentUser ? { id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar } : undefined,
         }),
       });
       const data = await res.json();
@@ -490,6 +505,7 @@ export default function HomePage() {
           action: 'end',
           callId,
           reason,
+          userId: currentUser?.id,
         }),
       });
       setActiveCall(null);
@@ -535,6 +551,50 @@ export default function HomePage() {
         fromUserId: currentUser.id,
       });
     } catch {}
+  };
+
+  const handleInviteParticipant = async (callId: string, targetUserId: string) => {
+    try {
+      const res = await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'invite', callId, targetUserId }),
+      });
+      const data = await res.json();
+      if (data.success && data.call) {
+        setActiveCall(data.call);
+        channelRef.current?.postMessage({ type: 'call_update', call: data.call });
+      }
+    } catch (err) {
+      console.error('Invite participant error:', err);
+    }
+  };
+
+  const handleSendMeshSignal = async (
+    callId: string,
+    signal: { fromUserId: string; toUserId: string; type: 'offer' | 'answer'; sdp: string }
+  ) => {
+    try {
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mesh_signal', callId, signal }),
+      });
+      setActiveCall((prev) => {
+        if (!prev || prev.id !== callId) return prev;
+        const key = `${signal.fromUserId}_${signal.toUserId}_${signal.type}`;
+        return {
+          ...prev,
+          meshSignals: {
+            ...(prev.meshSignals || {}),
+            [key]: { ...signal, updatedAt: Date.now() },
+          },
+        };
+      });
+      channelRef.current?.postMessage({ type: 'call_mesh_signal', callId, signal });
+    } catch (err) {
+      console.error('Send mesh signal error:', err);
+    }
   };
 
   const handleLoginSuccess = (user: UserAccount) => {
@@ -756,10 +816,15 @@ export default function HomePage() {
         <CallModal
           call={activeCall}
           currentUserId={currentUser.id}
+          currentUserName={currentUser.name}
+          currentUserAvatar={currentUser.avatar}
+          contacts={contacts}
           onEndCall={handleEndCall}
           onSendOffer={handleSendOffer}
           onAnswerCall={handleAnswerCall}
           onSendIce={handleSendIce}
+          onInviteParticipant={handleInviteParticipant}
+          onSendMeshSignal={handleSendMeshSignal}
         />
       )}
 

@@ -1,5 +1,5 @@
 import { CallSession, CallType, CallStatus, Message } from '../types/chat';
-import { findUserById, saveMessage, getChatRoomId, readDb, writeDb } from './db';
+import { findUserById, getGroupById, saveMessage, getChatRoomId, readDb, writeDb } from './db';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -42,35 +42,56 @@ export async function startCallSession({
   }
 
   const caller = await findUserById(callerId);
-  const receiver = await findUserById(receiverId);
+  const isGroup = receiverId.startsWith('grp_') || receiverId.includes('@g.us');
+  let group = null;
+  if (isGroup) {
+    group = await getGroupById(receiverId);
+    if (!group) throw new Error('Grup tidak ditemukan');
+  }
 
-  // Check if receiver is already in a call
-  let isBusy = false;
-  activeCalls.forEach((call) => {
-    if (
-      (call.receiverId === receiverId || call.callerId === receiverId) &&
-      (call.status === 'ringing' || call.status === 'connected')
-    ) {
-      isBusy = true;
+  const receiver = !isGroup ? await findUserById(receiverId) : null;
+
+  // Check if receiver is already in a 1-on-1 call
+  if (!isGroup) {
+    let isBusy = false;
+    activeCalls.forEach((call) => {
+      if (
+        !call.isGroup &&
+        (call.receiverId === receiverId || call.callerId === receiverId) &&
+        (call.status === 'ringing' || call.status === 'connected')
+      ) {
+        isBusy = true;
+      }
+    });
+    if (isBusy) {
+      throw new Error('Pengguna sedang dalam panggilan lain (sibuk)');
     }
-  });
-  if (isBusy) {
-    throw new Error('Pengguna sedang dalam panggilan lain (sibuk)');
   }
 
   const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const defaultCallerAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80';
+
   const session: CallSession = {
     id: callId,
     callerId,
     callerName: caller?.name || 'Pengguna',
-    callerAvatar:
-      caller?.avatar ||
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+    callerAvatar: caller?.avatar || defaultCallerAvatar,
     receiverId,
-    receiverName: receiver?.name || 'Pengguna',
-    receiverAvatar:
-      receiver?.avatar ||
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    receiverName: isGroup ? group?.name || 'Grup' : receiver?.name || 'Pengguna',
+    receiverAvatar: isGroup
+      ? group?.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80'
+      : receiver?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    isGroup,
+    groupId: isGroup ? receiverId : undefined,
+    groupMembers: isGroup ? group?.members || [] : undefined,
+    participants: [
+      {
+        id: callerId,
+        name: caller?.name || 'Pengguna',
+        avatar: caller?.avatar || defaultCallerAvatar,
+        joinedAt: Date.now(),
+      },
+    ],
     type,
     status: 'ringing',
     sdpOffer,
@@ -98,12 +119,17 @@ export async function getActiveCallForUser(userId: string): Promise<CallSession 
   pruneOldCalls();
   let found: CallSession | null = null;
   activeCalls.forEach((call) => {
-    if (
-      !found &&
-      (call.callerId === userId || call.receiverId === userId) &&
-      (call.status === 'ringing' || call.status === 'connected')
-    ) {
-      found = call;
+    if (!found) {
+      const isDirect = (call.callerId === userId || call.receiverId === userId);
+      const isGroupMember = Boolean(
+        call.isGroup && (call.groupMembers?.includes(userId) || call.invitedUsers?.includes(userId))
+      );
+      if (
+        (isDirect || isGroupMember) &&
+        (call.status === 'ringing' || call.status === 'connected')
+      ) {
+        found = call;
+      }
     }
   });
   if (found) return found;
@@ -114,7 +140,8 @@ export async function getActiveCallForUser(userId: string): Promise<CallSession 
       const now = Date.now();
       const match = db.activeCalls.find(
         (c) =>
-          (c.callerId === userId || c.receiverId === userId) &&
+          ((c.callerId === userId || c.receiverId === userId) ||
+            (c.isGroup && (c.groupMembers?.includes(userId) || c.invitedUsers?.includes(userId)))) &&
           (c.status === 'ringing' || c.status === 'connected') &&
           now - c.updatedAt < 120000
       );
@@ -174,7 +201,11 @@ export async function setCallOffer(callId: string, sdpOffer: string): Promise<Ca
   return call;
 }
 
-export async function answerCallSession(callId: string, sdpAnswer: string): Promise<CallSession> {
+export async function answerCallSession(
+  callId: string,
+  sdpAnswer: string,
+  user?: { id: string; name: string; avatar: string }
+): Promise<CallSession> {
   let call = activeCalls.get(callId);
   if (!call) {
     try {
@@ -185,8 +216,145 @@ export async function answerCallSession(callId: string, sdpAnswer: string): Prom
   if (!call) throw new Error('Panggilan tidak ditemukan');
 
   call.status = 'connected';
-  call.startedAt = Date.now();
+  if (!call.startedAt) call.startedAt = Date.now();
   call.sdpAnswer = sdpAnswer;
+  call.updatedAt = Date.now();
+
+  if (call.isGroup && user) {
+    if (!call.participants) {
+      call.participants = [
+        {
+          id: call.callerId,
+          name: call.callerName,
+          avatar: call.callerAvatar,
+          joinedAt: call.startedAt,
+        },
+      ];
+    }
+    if (!call.participants.some((p) => p.id === user.id)) {
+      call.participants.push({
+        id: user.id,
+        name: user.name,
+        avatar: user.avatar,
+        joinedAt: Date.now(),
+      });
+    }
+  }
+
+  activeCalls.set(callId, call);
+
+  try {
+    const db = await readDb();
+    if (db.activeCalls) {
+      const idx = db.activeCalls.findIndex((c) => c.id === callId);
+      if (idx !== -1) {
+        db.activeCalls[idx] = call;
+      } else {
+        db.activeCalls.push(call);
+      }
+      writeDb(db).catch(() => {});
+    }
+  } catch {}
+
+  return call;
+}
+
+export async function joinGroupCallSession(
+  callId: string,
+  user: { id: string; name: string; avatar: string },
+  sdpAnswer?: string
+): Promise<CallSession> {
+  return answerCallSession(callId, sdpAnswer || 'joined', user);
+}
+
+export async function inviteParticipantToCall(
+  callId: string,
+  targetUserId: string
+): Promise<CallSession> {
+  let call = activeCalls.get(callId);
+  if (!call) {
+    try {
+      const db = await readDb();
+      call = db.activeCalls?.find((c) => c.id === callId);
+    } catch {}
+  }
+  if (!call) throw new Error('Panggilan tidak ditemukan');
+
+  // If 1-on-1 call, upgrade session to group call mode
+  if (!call.isGroup) {
+    call.isGroup = true;
+    call.receiverName = 'Panggilan Grup';
+    if (!call.participants) {
+      call.participants = [
+        {
+          id: call.callerId,
+          name: call.callerName,
+          avatar: call.callerAvatar,
+          joinedAt: call.startedAt || Date.now(),
+        },
+      ];
+      if (call.status === 'connected') {
+        call.participants.push({
+          id: call.receiverId,
+          name: call.receiverName,
+          avatar: call.receiverAvatar,
+          joinedAt: call.startedAt || Date.now(),
+        });
+      }
+    }
+  }
+
+  if (!call.groupMembers) call.groupMembers = [];
+  if (!call.groupMembers.includes(targetUserId)) {
+    call.groupMembers.push(targetUserId);
+  }
+
+  if (!call.invitedUsers) call.invitedUsers = [];
+  if (!call.invitedUsers.includes(targetUserId)) {
+    call.invitedUsers.push(targetUserId);
+  }
+
+  call.updatedAt = Date.now();
+  activeCalls.set(callId, call);
+
+  try {
+    const db = await readDb();
+    if (db.activeCalls) {
+      const idx = db.activeCalls.findIndex((c) => c.id === callId);
+      if (idx !== -1) {
+        db.activeCalls[idx] = call;
+      } else {
+        db.activeCalls.push(call);
+      }
+      writeDb(db).catch(() => {});
+    }
+  } catch {}
+
+  return call;
+}
+
+export async function setMeshSignal(
+  callId: string,
+  signal: { fromUserId: string; toUserId: string; type: 'offer' | 'answer'; sdp: string }
+): Promise<CallSession> {
+  let call = activeCalls.get(callId);
+  if (!call) {
+    try {
+      const db = await readDb();
+      call = db.activeCalls?.find((c) => c.id === callId);
+    } catch {}
+  }
+  if (!call) throw new Error('Panggilan tidak ditemukan');
+
+  if (!call.meshSignals) {
+    call.meshSignals = {};
+  }
+
+  const key = `${signal.fromUserId}_${signal.toUserId}_${signal.type}`;
+  call.meshSignals[key] = {
+    ...signal,
+    updatedAt: Date.now(),
+  };
   call.updatedAt = Date.now();
   activeCalls.set(callId, call);
 
@@ -222,10 +390,29 @@ export function addIceCandidate(callId: string, candidate: any, fromUserId: stri
 
 export async function endCallSession(
   callId: string,
-  reason: 'ended' | 'rejected' = 'ended'
+  reason: 'ended' | 'rejected' = 'ended',
+  userId?: string
 ): Promise<CallSession | null> {
   const call = activeCalls.get(callId);
   if (!call) return null;
+
+  // Group call participant leaving: keep call alive for remaining members if more than 1 left
+  if (call.isGroup && userId && call.participants && call.participants.length > 2) {
+    call.participants = call.participants.filter((p) => p.id !== userId);
+    call.updatedAt = Date.now();
+    activeCalls.set(callId, call);
+    try {
+      const db = await readDb();
+      if (db.activeCalls) {
+        const idx = db.activeCalls.findIndex((c) => c.id === callId);
+        if (idx !== -1) {
+          db.activeCalls[idx] = call;
+          writeDb(db).catch(() => {});
+        }
+      }
+    } catch {}
+    return call;
+  }
 
   const now = Date.now();
   const wasConnected = call.status === 'connected';

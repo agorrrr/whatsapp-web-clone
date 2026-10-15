@@ -204,19 +204,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
         {/* Right menu actions */}
         <div className="flex items-center space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] relative">
-          {!contact.isGroup && onStartCall && (
+          {onStartCall && (
             <>
               <button
                 onClick={() => onStartCall('video')}
                 className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                title="Panggilan video"
+                title={contact.isGroup ? "Panggilan video grup" : "Panggilan video"}
               >
                 <Video className="w-5 h-5" />
               </button>
               <button
                 onClick={() => onStartCall('audio')}
                 className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                title="Panggilan suara"
+                title={contact.isGroup ? "Panggilan suara grup" : "Panggilan suara"}
               >
                 <Phone className="w-5 h-5" />
               </button>

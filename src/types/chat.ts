@@ -5,6 +5,23 @@ export type MessageType = 'text' | 'image' | 'audio' | 'sticker' | 'document' | 
 export type CallType = 'audio' | 'video';
 export type CallStatus = 'ringing' | 'connected' | 'ended' | 'rejected' | 'busy';
 
+export interface CallParticipant {
+  id: string;
+  name: string;
+  avatar: string;
+  joinedAt: number;
+  isMuted?: boolean;
+  isVideoDisabled?: boolean;
+}
+
+export interface MeshSignal {
+  fromUserId: string;
+  toUserId: string;
+  type: 'offer' | 'answer';
+  sdp: string;
+  updatedAt: number;
+}
+
 export interface CallSession {
   id: string;
   callerId: string;
@@ -13,6 +30,12 @@ export interface CallSession {
   receiverId: string;
   receiverName: string;
   receiverAvatar: string;
+  isGroup?: boolean;
+  groupId?: string;
+  groupMembers?: string[];
+  invitedUsers?: string[];
+  participants?: CallParticipant[];
+  meshSignals?: Record<string, MeshSignal>;
   type: CallType;
   status: CallStatus;
   startedAt?: number;
