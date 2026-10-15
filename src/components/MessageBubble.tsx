@@ -17,14 +17,18 @@ import {
   Download,
   Trash2,
   Ban,
+  Star,
+  MapPin,
 } from 'lucide-react';
 import { createDemoAudioDataUrl } from '../utils/audio';
 
 interface MessageBubbleProps {
   message: Message;
   isMe: boolean;
+  currentUserId?: string;
   onReply?: (message: Message) => void;
   onReaction?: (messageId: string, emoji: string) => void;
+  onToggleStar?: (messageId: string) => void;
   onImageClick?: (url: string) => void;
   onSenderClick?: (senderId: string) => void;
   onDeleteMessage?: (messageId: string) => void;
@@ -33,8 +37,10 @@ interface MessageBubbleProps {
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
   message,
   isMe,
+  currentUserId,
   onReply,
   onReaction,
+  onToggleStar,
   onImageClick,
   onSenderClick,
   onDeleteMessage,
@@ -304,6 +310,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
+        {/* LOCATION MESSAGE */}
+        {message.type === 'location' && message.locationInfo && (
+          <div className="flex flex-col space-y-2 min-w-[240px] max-w-[280px]">
+            <div className="relative w-full h-32 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/20 overflow-hidden flex flex-col items-center justify-center p-3 select-none">
+              <div className="absolute inset-0 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:16px_16px] opacity-25" />
+              <div className="relative z-10 w-10 h-10 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg animate-bounce">
+                <MapPin className="w-6 h-6 fill-white" />
+              </div>
+              <span className="relative z-10 mt-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-white/80 dark:bg-[#111b21]/80 px-2.5 py-0.5 rounded-full shadow-sm">
+                Lokasi Terkini
+              </span>
+            </div>
+
+            <div className="text-[12px] text-[#667781] dark:text-[#8696a0] px-1 font-mono">
+              {message.locationInfo.latitude.toFixed(5)}, {message.locationInfo.longitude.toFixed(5)}
+            </div>
+
+            <a
+              href={`https://www.google.com/maps?q=${message.locationInfo.latitude},${message.locationInfo.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-1.5 px-3 rounded-lg bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors shadow-sm"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              <span>Buka di Google Maps</span>
+            </a>
+          </div>
+        )}
+
         {/* REGULAR TEXT MESSAGE */}
         {message.type === 'text' && (
           <p className="whitespace-pre-wrap break-words leading-relaxed pr-14 text-[14.2px]">
@@ -315,6 +350,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         {/* Timestamp and Delivery ticks */}
         <div className="absolute right-2 bottom-1 flex items-center space-x-1 text-[11px] text-[#667781] dark:text-[#8696a0] select-none">
+          {message.starredBy?.includes(currentUserId || '') && (
+            <Star className="w-3 h-3 text-amber-400 fill-amber-400 mr-0.5" />
+          )}
           <span>{message.timestamp}</span>
           {isMe && (
             message.status === 'read' ? (
@@ -335,10 +373,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         )}
       </div>
 
-      {/* Floating Action Menu (Reply & Quick React) */}
+      {/* Floating Action Menu (Reply, Star, Quick React, Delete) */}
       <div
         className={`opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 ${
-          isMe ? 'left-[-90px]' : 'right-[-60px]'
+          isMe ? 'left-[-120px]' : 'right-[-90px]'
         } flex items-center space-x-1 bg-white/80 dark:bg-[#202c33]/80 backdrop-blur-sm p-1 rounded-full shadow-md z-10`}
       >
         {!message.isDeleted && (
@@ -349,6 +387,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-[#667781] dark:text-[#8696a0]"
             >
               <CornerUpLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onToggleStar?.(message.id)}
+              title={message.starredBy?.includes(currentUserId || '') ? 'Hapus Bintang' : 'Bintangi Pesan'}
+              className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-[#667781] dark:text-[#8696a0]"
+            >
+              <Star
+                className={`w-3.5 h-3.5 ${
+                  message.starredBy?.includes(currentUserId || '')
+                    ? 'text-amber-400 fill-amber-400'
+                    : ''
+                }`}
+              />
             </button>
             <button
               onClick={() => setShowReactionBar(!showReactionBar)}

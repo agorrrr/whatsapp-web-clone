@@ -1,6 +1,6 @@
 export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read';
 
-export type MessageType = 'text' | 'image' | 'audio' | 'sticker' | 'document' | 'call';
+export type MessageType = 'text' | 'image' | 'audio' | 'sticker' | 'document' | 'location' | 'call';
 
 export type CallType = 'audio' | 'video';
 export type CallStatus = 'ringing' | 'connected' | 'ended' | 'rejected' | 'busy';
@@ -61,6 +61,7 @@ export interface UserAccount {
   lastSeen?: string;
   createdAt?: string;
   friends?: string[]; // array of friend user IDs
+  pinnedChatIds?: string[]; // array of pinned chat IDs (max 3)
 }
 
 export interface Message {
@@ -75,6 +76,12 @@ export interface Message {
   fileName?: string;
   fileSize?: string;
   audioDuration?: number;
+  locationInfo?: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+  };
+  starredBy?: string[]; // array of user IDs who starred this message
   callInfo?: {
     type: CallType;
     status: 'missed' | 'completed' | 'declined';
@@ -108,6 +115,7 @@ export interface ContactItem {
   unreadCount: number;
   pinned?: boolean;
   isTyping?: boolean;
+  typingUserName?: string;
   lastMessage?: {
     text: string;
     timestamp: string;

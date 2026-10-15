@@ -46,7 +46,18 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { senderId, recipientId, type, text, mediaUrl, fileName, fileSize, audioDuration, replyTo } = body;
+    const {
+      senderId,
+      recipientId,
+      type,
+      text,
+      mediaUrl,
+      fileName,
+      fileSize,
+      audioDuration,
+      locationInfo,
+      replyTo,
+    } = body;
 
     if (!senderId || !recipientId) {
       return NextResponse.json(
@@ -105,6 +116,7 @@ export async function POST(req: Request) {
       fileName,
       fileSize,
       audioDuration,
+      locationInfo,
       timestamp: timeString,
       status: sentToRealWa ? 'sent' : 'delivered',
       replyTo,

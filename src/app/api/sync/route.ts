@@ -6,6 +6,7 @@ import {
   getUserGroups,
 } from '../../../server/db';
 import { getActiveCallForUser } from '../../../server/callManager';
+import { getActiveTyping } from '../../../server/typingManager';
 import { UserAccount } from '../../../types/chat';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,8 @@ export async function GET(req: Request) {
     }
 
     const db = await readDb();
+    const currentUser = db.users.find((u) => u.id === userId);
+    const pinnedChatIds = currentUser?.pinnedChatIds || [];
 
     // 1. All messages involving this user (direct or groups)
     const allUserMessages = await getMessagesForUser(userId);
@@ -69,6 +72,8 @@ export async function GET(req: Request) {
         allUserMessages,
         senders,
         groups,
+        pinnedChatIds,
+        activeTyping: getActiveTyping(),
         activeCall: await getActiveCallForUser(userId),
         serverTime: Date.now(),
       },

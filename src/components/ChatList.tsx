@@ -22,6 +22,8 @@ import {
   Users,
   Smartphone,
   CircleDashed,
+  Star,
+  MapPin,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -37,6 +39,8 @@ interface ChatListProps {
   onOpenSyncRealWa?: () => void;
   onOpenProfile?: (contact: ContactItem) => void;
   onOpenStatus?: () => void;
+  onTogglePinChat?: (chatId: string) => void;
+  onOpenStarredMessages?: () => void;
   hasUnviewedStories?: boolean;
   storyUsersWithActiveStories?: Set<string>;
   onLogout: () => void;
@@ -55,6 +59,8 @@ export const ChatList: React.FC<ChatListProps> = ({
   onOpenSyncRealWa,
   onOpenProfile,
   onOpenStatus,
+  onTogglePinChat,
+  onOpenStarredMessages,
   hasUnviewedStories,
   storyUsersWithActiveStories,
   onLogout,
@@ -70,6 +76,12 @@ export const ChatList: React.FC<ChatListProps> = ({
       (c.lastMessage?.text || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter = filterUnread ? c.unreadCount > 0 : true;
     return matchesSearch && matchesFilter;
+  });
+
+  const sortedContacts = [...filteredContacts].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return 0;
   });
 
   return (
@@ -175,6 +187,16 @@ export const ChatList: React.FC<ChatListProps> = ({
                 <button
                   onClick={() => {
                     setShowMenu(false);
+                    onOpenStarredMessages?.();
+                  }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2 text-amber-500 font-medium"
+                >
+                  <Star className="w-4 h-4 fill-amber-400" />
+                  <span>Pesan Berbintang</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
                     onOpenNewGroup();
                   }}
                   className="w-full text-left px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2"
@@ -276,7 +298,7 @@ export const ChatList: React.FC<ChatListProps> = ({
 
       {/* Contacts List */}
       <div className="flex-1 overflow-y-auto divide-y divide-[#e9edef]/60 dark:divide-[#222e35]/60">
-        {filteredContacts.length === 0 ? (
+        {sortedContacts.length === 0 ? (
           <div className="p-8 text-center flex flex-col items-center">
             <User className="w-12 h-12 text-[#8696a0] mb-2 stroke-1" />
             <p className="text-sm font-medium text-[#111b21] dark:text-[#e9edef]">
@@ -293,7 +315,7 @@ export const ChatList: React.FC<ChatListProps> = ({
             </button>
           </div>
         ) : (
-          filteredContacts.map((contact) => {
+          sortedContacts.map((contact) => {
             const isActive = contact.id === activeContactId;
             const lastMsg = contact.lastMessage;
             const isMeLast = lastMsg?.senderId === currentUser.id;
@@ -302,7 +324,7 @@ export const ChatList: React.FC<ChatListProps> = ({
               <div
                 key={contact.id}
                 onClick={() => onSelectContact(contact.id)}
-                className={`flex items-center px-3 py-3 cursor-pointer transition-colors relative select-none ${
+                className={`group flex items-center px-3 py-3 cursor-pointer transition-colors relative select-none ${
                   isActive
                     ? 'bg-[#f0f2f5] dark:bg-[#2a3942]'
                     : 'hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'
@@ -310,7 +332,7 @@ export const ChatList: React.FC<ChatListProps> = ({
               >
                 {/* Contact Avatar */}
                 <div
-                  className="relative mr-3 flex-shrink-0 cursor-pointer group"
+                  className="relative mr-3 flex-shrink-0 cursor-pointer group/avatar"
                   onClick={(e) => {
                     if (!contact.isGroup && onOpenProfile) {
                       e.stopPropagation();
@@ -322,7 +344,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                   <img
                     src={contact.avatar}
                     alt={contact.name}
-                    className={`w-12 h-12 rounded-full object-cover group-hover:opacity-90 transition-opacity ${
+                    className={`w-12 h-12 rounded-full object-cover group-hover/avatar:opacity-90 transition-opacity ${
                       !contact.isGroup && storyUsersWithActiveStories?.has(contact.id)
                         ? 'p-[2px] ring-2 ring-[#00a884]'
                         : ''
@@ -349,15 +371,20 @@ export const ChatList: React.FC<ChatListProps> = ({
                         </span>
                       )}
                     </div>
-                    <span
-                      className={`text-[12px] whitespace-nowrap ml-2 ${
-                        contact.unreadCount > 0
-                          ? 'text-[#00a884] font-semibold'
-                          : 'text-[#667781] dark:text-[#8696a0]'
-                      }`}
-                    >
-                      {lastMsg?.timestamp || ''}
-                    </span>
+                    <div className="flex items-center space-x-1 ml-2 flex-shrink-0">
+                      {contact.pinned && (
+                        <Pin className="w-3.5 h-3.5 text-[#00a884] fill-[#00a884] transform rotate-45" />
+                      )}
+                      <span
+                        className={`text-[12px] whitespace-nowrap ${
+                          contact.unreadCount > 0
+                            ? 'text-[#00a884] font-semibold'
+                            : 'text-[#667781] dark:text-[#8696a0]'
+                        }`}
+                      >
+                        {lastMsg?.timestamp || ''}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -401,6 +428,13 @@ export const ChatList: React.FC<ChatListProps> = ({
                             </span>
                           )}
 
+                          {lastMsg?.type === 'location' && (
+                            <span className="inline-flex items-center mr-1 text-[#00a884]">
+                              <MapPin className="w-3.5 h-3.5 mr-0.5" />
+                              Lokasi
+                            </span>
+                          )}
+
                           {lastMsg?.type === 'text' && (
                             <span className="truncate">{lastMsg.text}</span>
                           )}
@@ -412,11 +446,28 @@ export const ChatList: React.FC<ChatListProps> = ({
                       )}
                     </div>
 
-                    {contact.unreadCount > 0 && (
-                      <span className="px-1.5 py-0.5 min-w-[20px] text-center rounded-full bg-[#00a884] text-white text-[11px] font-bold flex-shrink-0">
-                        {contact.unreadCount}
-                      </span>
-                    )}
+                    <div className="flex items-center space-x-1.5 flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTogglePinChat?.(contact.id);
+                        }}
+                        title={contact.pinned ? 'Lepas Sematan' : 'Sematkan Chat (Maks 3)'}
+                        className={`p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-all ${
+                          contact.pinned
+                            ? 'opacity-100 text-[#00a884]'
+                            : 'opacity-0 group-hover:opacity-100 text-[#8696a0]'
+                        }`}
+                      >
+                        <Pin className={`w-3.5 h-3.5 ${contact.pinned ? 'fill-current' : ''}`} />
+                      </button>
+
+                      {contact.unreadCount > 0 && (
+                        <span className="px-1.5 py-0.5 min-w-[20px] text-center rounded-full bg-[#00a884] text-white text-[11px] font-bold">
+                          {contact.unreadCount}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

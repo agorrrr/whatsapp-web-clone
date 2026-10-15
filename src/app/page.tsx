@@ -16,6 +16,7 @@ import { UserProfileModal } from '../components/UserProfileModal';
 import { StatusDrawer } from '../components/StatusDrawer';
 import { CreateStoryModal } from '../components/CreateStoryModal';
 import { StoryViewerModal } from '../components/StoryViewerModal';
+import { StarredMessagesModal } from '../components/StarredMessagesModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
 const SESSION_USER_KEY = 'wa_clone_active_user_v3';
@@ -44,6 +45,7 @@ export default function HomePage() {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showSyncRealWa, setShowSyncRealWa] = useState(false);
+  const [showStarredModal, setShowStarredModal] = useState(false);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -295,6 +297,23 @@ export default function HomePage() {
           });
         }
 
+        // D. Sync pinned & typing status
+        const pinnedList = Array.isArray(data.pinnedChatIds) ? data.pinnedChatIds : [];
+        const activeTypingList = Array.isArray(data.activeTyping) ? data.activeTyping : [];
+
+        updated = updated.map((c) => {
+          const isPinned = pinnedList.includes(c.id);
+          const isTyping = activeTypingList.some(
+            (t: any) =>
+              (t.chatId === c.id || t.chatId.includes(c.id)) && t.userId !== currentUser.id
+          );
+          return {
+            ...c,
+            pinned: isPinned,
+            isTyping: !!isTyping,
+          };
+        });
+
         return updated;
       });
 
@@ -443,6 +462,7 @@ export default function HomePage() {
     fileName,
     fileSize,
     audioDuration,
+    locationInfo,
     replyTo,
   }: {
     type: MessageType;
@@ -451,6 +471,11 @@ export default function HomePage() {
     fileName?: string;
     fileSize?: string;
     audioDuration?: number;
+    locationInfo?: {
+      latitude: number;
+      longitude: number;
+      address?: string;
+    };
     replyTo?: Message;
   }) => {
     if (!currentUser || !activeContactId) return;
@@ -468,6 +493,7 @@ export default function HomePage() {
           fileName,
           fileSize,
           audioDuration,
+          locationInfo,
           replyTo: replyTo
             ? {
                 id: replyTo.id,
@@ -512,6 +538,59 @@ export default function HomePage() {
       }
     } catch (err) {
       console.error('Delete message error:', err);
+    }
+  };
+
+  const handleTogglePinChat = async (chatId: string) => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch('/api/chats/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, chatId }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.pinnedChatIds)) {
+        setContacts((prev) =>
+          prev.map((c) => ({
+            ...c,
+            pinned: data.pinnedChatIds.includes(c.id),
+          }))
+        );
+      } else if (!data.success && data.message) {
+        alert(data.message);
+      }
+    } catch {
+      alert('Gagal menyematkan chat');
+    }
+  };
+
+  const handleToggleStar = async (messageId: string) => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch('/api/messages/star', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, userId: currentUser.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== messageId) return m;
+            const currentStarred = Array.isArray(m.starredBy) ? [...m.starredBy] : [];
+            const idx = currentStarred.indexOf(currentUser.id);
+            if (idx > -1) {
+              currentStarred.splice(idx, 1);
+            } else {
+              currentStarred.push(currentUser.id);
+            }
+            return { ...m, starredBy: currentStarred };
+          })
+        );
+      }
+    } catch (err) {
+      console.error('Toggle star error:', err);
     }
   };
 
@@ -976,6 +1055,8 @@ export default function HomePage() {
               onOpenSyncRealWa={() => setShowSyncRealWa(true)}
               onOpenProfile={(c) => setInspectedUser(c)}
               onOpenStatus={() => setShowStatusDrawer(true)}
+              onTogglePinChat={handleTogglePinChat}
+              onOpenStarredMessages={() => setShowStarredModal(true)}
               hasUnviewedStories={friendStories.some((f) => f.hasUnviewed)}
               storyUsersWithActiveStories={new Set(friendStories.map((f) => f.userId))}
               onLogout={handleLogout}
@@ -993,11 +1074,13 @@ export default function HomePage() {
             <ChatWindow
               contact={activeContact}
               currentUserId={currentUser.id}
+              currentUserName={currentUser.name}
               messages={messages}
               onSendMessage={handleSendMessage}
               onReaction={handleReaction}
               onClearChat={handleClearChat}
               onDeleteMessage={handleDeleteMessage}
+              onToggleStar={handleToggleStar}
               onBackMobile={() => setActiveContactId(null)}
               onOpenGroupInfo={() => setShowGroupInfo(true)}
               onOpenProfile={(c) => setInspectedUser(c)}
@@ -1114,6 +1197,29 @@ export default function HomePage() {
           onDeleteStory={handleDeleteStory}
           onStoryViewed={handleStoryViewed}
           onSendReply={handleSendStoryReply}
+        />
+      )}
+
+      {/* Starred Messages Modal */}
+      {showStarredModal && currentUser && (
+        <StarredMessagesModal
+          userId={currentUser.id}
+          onClose={() => setShowStarredModal(false)}
+          onSelectChat={(chatId) => {
+            const targetId = chatId.startsWith('grp_')
+              ? chatId
+              : chatId.split('__').find((id) => id !== currentUser.id);
+            if (targetId) setActiveContactId(targetId);
+          }}
+          onUnstarSuccess={(msgId) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === msgId
+                  ? { ...m, starredBy: m.starredBy?.filter((u) => u !== currentUser.id) }
+                  : m
+              )
+            );
+          }}
         />
       )}
     </div>

@@ -22,11 +22,13 @@ import {
   Phone,
   Video,
   FileText,
+  MapPin,
 } from 'lucide-react';
 
 interface ChatWindowProps {
   contact: ContactItem;
   currentUserId: string;
+  currentUserName?: string;
   messages: Message[];
   onSendMessage: (params: {
     type: MessageType;
@@ -35,11 +37,17 @@ interface ChatWindowProps {
     fileName?: string;
     fileSize?: string;
     audioDuration?: number;
+    locationInfo?: {
+      latitude: number;
+      longitude: number;
+      address?: string;
+    };
     replyTo?: Message;
   }) => void;
   onReaction: (messageId: string, emoji: string) => void;
   onClearChat: () => void;
   onDeleteMessage?: (messageId: string) => void;
+  onToggleStar?: (messageId: string) => void;
   onBackMobile?: () => void;
   onOpenGroupInfo?: () => void;
   onOpenProfile?: (contact: ContactItem) => void;
@@ -51,11 +59,13 @@ interface ChatWindowProps {
 export const ChatWindow: React.FC<ChatWindowProps> = ({
   contact,
   currentUserId,
+  currentUserName,
   messages,
   onSendMessage,
   onReaction,
   onClearChat,
   onDeleteMessage,
+  onToggleStar,
   onBackMobile,
   onOpenGroupInfo,
   onOpenProfile,
@@ -78,6 +88,40 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const docInputRef = useRef<HTMLInputElement | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
+  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const notifyTyping = (isTyping: boolean) => {
+    fetch('/api/typing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatId: contact.id,
+        userId: currentUserId,
+        userName: currentUserName || 'Teman',
+        isTyping,
+      }),
+    }).catch(() => {});
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    const now = Date.now();
+    if (val.trim().length > 0) {
+      if (now - lastTypingSentRef.current > 2000) {
+        lastTypingSentRef.current = now;
+        notifyTyping(true);
+      }
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        notifyTyping(false);
+      }, 3000);
+    } else {
+      notifyTyping(false);
+    }
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -86,6 +130,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleSendText = () => {
     if (!inputText.trim()) return;
+    notifyTyping(false);
     onSendMessage({
       type: 'text',
       text: inputText.trim(),
@@ -179,6 +224,33 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     });
     setShowStickerPicker(false);
     setReplyingMessage(null);
+  };
+
+  const handleShareLocation = () => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      alert('Browser Anda tidak mendukung fitur geolokasi');
+      return;
+    }
+    setShowAttachmentMenu(false);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        onSendMessage({
+          type: 'location',
+          locationInfo: {
+            latitude,
+            longitude,
+            address: `Lat ${latitude.toFixed(5)}, Lon ${longitude.toFixed(5)}`,
+          },
+          replyTo: replyingMessage || undefined,
+        });
+        setReplyingMessage(null);
+      },
+      (err) => {
+        alert(`Gagal mengambil titik lokasi: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   return (
@@ -405,8 +477,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             key={msg.id}
             message={msg}
             isMe={msg.senderId === currentUserId}
+            currentUserId={currentUserId}
             onReply={(m) => setReplyingMessage(m)}
             onReaction={onReaction}
+            onToggleStar={onToggleStar}
             onImageClick={(url) => setLightboxImage(url)}
             onSenderClick={onSenderClick}
             onDeleteMessage={onDeleteMessage}
@@ -501,6 +575,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   </div>
                   <span>Dokumen & Berkas</span>
                 </button>
+
+                <button
+                  onClick={handleShareLocation}
+                  className="flex items-center space-x-3 text-xs font-medium text-[#111b21] dark:text-[#d1d7db] hover:bg-black/5 dark:hover:bg-white/5 p-2 rounded-lg"
+                >
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-500 to-green-600 flex items-center justify-center text-white">
+                    <MapPin className="w-5 h-5" />
+                  </div>
+                  <span>Bagikan Lokasi</span>
+                </button>
               </div>
             )}
           </div>
@@ -527,7 +611,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               type="text"
               placeholder="Ketik pesan pribadi..."
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               className="w-full bg-transparent outline-none text-sm text-[#111b21] dark:text-[#e9edef] placeholder-[#667781] dark:placeholder-[#8696a0]"
             />

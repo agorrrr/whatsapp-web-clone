@@ -535,3 +535,73 @@ export async function deleteStory(storyId: string, userId: string): Promise<bool
   return false;
 }
 
+// Starred Messages
+export async function toggleStarMessage(
+  messageId: string,
+  userId: string
+): Promise<{ message: Message; isStarred: boolean } | null> {
+  const db = await readDb();
+  const msg = db.messages.find((m) => m.id === messageId);
+  if (!msg) return null;
+
+  if (!Array.isArray(msg.starredBy)) {
+    msg.starredBy = [];
+  }
+
+  const idx = msg.starredBy.indexOf(userId);
+  let isStarred = false;
+  if (idx > -1) {
+    msg.starredBy.splice(idx, 1);
+    isStarred = false;
+  } else {
+    msg.starredBy.push(userId);
+    isStarred = true;
+  }
+
+  await writeDb(db);
+  return { message: msg, isStarred };
+}
+
+export async function getStarredMessages(userId: string): Promise<Message[]> {
+  const db = await readDb();
+  return db.messages.filter(
+    (m) => !m.isDeleted && Array.isArray(m.starredBy) && m.starredBy.includes(userId)
+  );
+}
+
+// Pinned Chats
+export async function togglePinChat(
+  userId: string,
+  chatId: string
+): Promise<{ pinnedChatIds: string[]; isPinned: boolean }> {
+  const db = await readDb();
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new Error('Pengguna tidak ditemukan');
+
+  if (!Array.isArray(user.pinnedChatIds)) {
+    user.pinnedChatIds = [];
+  }
+
+  const idx = user.pinnedChatIds.indexOf(chatId);
+  let isPinned = false;
+  if (idx > -1) {
+    user.pinnedChatIds.splice(idx, 1);
+    isPinned = false;
+  } else {
+    if (user.pinnedChatIds.length >= 3) {
+      throw new Error('Maksimal 3 chat yang dapat disematkan');
+    }
+    user.pinnedChatIds.push(chatId);
+    isPinned = true;
+  }
+
+  await writeDb(db);
+  return { pinnedChatIds: user.pinnedChatIds, isPinned };
+}
+
+export async function getUserPinnedChatIds(userId: string): Promise<string[]> {
+  const db = await readDb();
+  const user = db.users.find((u) => u.id === userId);
+  return user?.pinnedChatIds || [];
+}
+
