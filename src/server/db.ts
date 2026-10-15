@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { UserAccount, Message, GroupChat, GroupMember, CallSession } from '../types/chat';
+import { UserAccount, Message, GroupChat, GroupMember, CallSession, StoryItem } from '../types/chat';
 
 // Cloud Gist database configuration for persistent Vercel serverless execution
 const GIST_ID = process.env.GIST_ID || '9d6bf54cf48dffbca905eff3a3a4fa45';
@@ -14,6 +14,7 @@ interface DatabaseSchema {
   messages: Message[];
   groups?: GroupChat[];
   activeCalls?: CallSession[];
+  stories?: StoryItem[];
 }
 
 let inMemoryCache: DatabaseSchema = {
@@ -21,6 +22,7 @@ let inMemoryCache: DatabaseSchema = {
   messages: [],
   groups: [],
   activeCalls: [],
+  stories: [],
 };
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 2500;
@@ -71,6 +73,7 @@ export async function readDb(): Promise<DatabaseSchema> {
                 messages: Array.isArray(parsed.messages) ? parsed.messages : [],
                 groups: Array.isArray(parsed.groups) ? parsed.groups : [],
                 activeCalls: Array.isArray(parsed.activeCalls) ? parsed.activeCalls : [],
+                stories: Array.isArray(parsed.stories) ? parsed.stories : [],
               };
               lastFetchTime = Date.now();
               return inMemoryCache;
@@ -91,6 +94,7 @@ export async function readDb(): Promise<DatabaseSchema> {
             messages: Array.isArray(parsed.messages) ? parsed.messages : [],
             groups: Array.isArray(parsed.groups) ? parsed.groups : [],
             activeCalls: Array.isArray(parsed.activeCalls) ? parsed.activeCalls : [],
+            stories: Array.isArray(parsed.stories) ? parsed.stories : [],
           };
           return inMemoryCache;
         }
@@ -460,5 +464,58 @@ export async function getGroupMembersDetails(groupId: string): Promise<GroupMemb
       isOnline: user?.isOnline ?? true,
     };
   });
+}
+
+// --- Stories / Status operations (Auto-expire after 24 hours) ---
+
+export async function getActiveStories(): Promise<StoryItem[]> {
+  const db = await readDb();
+  const now = Date.now();
+  const allStories = Array.isArray(db.stories) ? db.stories : [];
+  // Filter active stories within 24h limit
+  const active = allStories.filter((s) => s.expiresAt > now);
+
+  // Auto-prune expired stories in background
+  if (active.length !== allStories.length) {
+    db.stories = active;
+    writeDb(db).catch(() => {});
+  }
+
+  return active;
+}
+
+export async function createStory(story: StoryItem): Promise<StoryItem> {
+  const db = await readDb();
+  if (!db.stories) db.stories = [];
+  db.stories.unshift(story);
+  await writeDb(db);
+  return story;
+}
+
+export async function viewStory(storyId: string, viewerUserId: string): Promise<boolean> {
+  const db = await readDb();
+  if (!db.stories) return false;
+  const story = db.stories.find((s) => s.id === storyId);
+  if (!story) return false;
+
+  if (!story.viewers) story.viewers = [];
+  if (!story.viewers.includes(viewerUserId)) {
+    story.viewers.push(viewerUserId);
+    await writeDb(db);
+    return true;
+  }
+  return false;
+}
+
+export async function deleteStory(storyId: string, userId: string): Promise<boolean> {
+  const db = await readDb();
+  if (!db.stories) return false;
+  const initialLen = db.stories.length;
+  db.stories = db.stories.filter((s) => !(s.id === storyId && s.userId === userId));
+  if (db.stories.length !== initialLen) {
+    await writeDb(db);
+    return true;
+  }
+  return false;
 }
 

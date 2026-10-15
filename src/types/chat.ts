@@ -141,3 +141,28 @@ export interface GroupChat {
   createdAt: string;
   updatedAt?: string;
 }
+
+export interface StoryItem {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  type: 'image' | 'text';
+  mediaUrl?: string;
+  caption?: string;
+  text?: string;
+  backgroundColor?: string;
+  createdAt: number;
+  expiresAt: number;
+  viewers?: string[];
+}
+
+export interface UserStoryGroup {
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  isSelf?: boolean;
+  hasUnviewed?: boolean;
+  stories: StoryItem[];
+  latestTimestamp: number;
+}

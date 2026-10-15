@@ -21,6 +21,7 @@ import {
   UserPlus,
   Users,
   Smartphone,
+  CircleDashed,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -35,6 +36,9 @@ interface ChatListProps {
   onOpenEditProfile: () => void;
   onOpenSyncRealWa?: () => void;
   onOpenProfile?: (contact: ContactItem) => void;
+  onOpenStatus?: () => void;
+  hasUnviewedStories?: boolean;
+  storyUsersWithActiveStories?: Set<string>;
   onLogout: () => void;
 }
 
@@ -50,6 +54,9 @@ export const ChatList: React.FC<ChatListProps> = ({
   onOpenEditProfile,
   onOpenSyncRealWa,
   onOpenProfile,
+  onOpenStatus,
+  hasUnviewedStories,
+  storyUsersWithActiveStories,
   onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -98,6 +105,17 @@ export const ChatList: React.FC<ChatListProps> = ({
         {/* Header Action Icons */}
         <div className="flex items-center space-x-1.5 text-[#54656f] dark:text-[#aebac1] relative flex-shrink-0">
           <button
+            onClick={onOpenStatus}
+            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-[#54656f] dark:text-[#aebac1] hover:text-[#00a884] relative"
+            title="Status WhatsApp"
+          >
+            <CircleDashed className="w-5 h-5" />
+            {hasUnviewedStories && (
+              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#00a884] rounded-full ring-2 ring-[#f0f2f5] dark:ring-[#202c33]" />
+            )}
+          </button>
+
+          <button
             onClick={onToggleTheme}
             className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             title={theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}
@@ -144,6 +162,16 @@ export const ChatList: React.FC<ChatListProps> = ({
                   <p className="font-semibold text-xs text-[#00a884]">@{currentUser.username}</p>
                   <p className="text-[11px] text-[#8696a0] truncate">{currentUser.identifier}</p>
                 </div>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onOpenStatus?.();
+                  }}
+                  className="w-full text-left px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 flex items-center space-x-2 text-[#00a884] font-medium"
+                >
+                  <CircleDashed className="w-4 h-4" />
+                  <span>Status WhatsApp</span>
+                </button>
                 <button
                   onClick={() => {
                     setShowMenu(false);
@@ -294,7 +322,11 @@ export const ChatList: React.FC<ChatListProps> = ({
                   <img
                     src={contact.avatar}
                     alt={contact.name}
-                    className="w-12 h-12 rounded-full object-cover group-hover:opacity-90 transition-opacity"
+                    className={`w-12 h-12 rounded-full object-cover group-hover:opacity-90 transition-opacity ${
+                      !contact.isGroup && storyUsersWithActiveStories?.has(contact.id)
+                        ? 'p-[2px] ring-2 ring-[#00a884]'
+                        : ''
+                    }`}
                   />
                   {contact.isOnline && (
                     <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-[#00a884] border-2 border-white dark:border-[#111b21]" />

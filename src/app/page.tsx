@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserAccount, ContactItem, Message, MessageType, GroupChat, CallSession, CallType } from '../types/chat';
+import { UserAccount, ContactItem, Message, MessageType, GroupChat, CallSession, CallType, StoryItem, UserStoryGroup } from '../types/chat';
 import { ChatList } from '../components/ChatList';
 import { ChatWindow } from '../components/ChatWindow';
 import { EmptyChat } from '../components/EmptyChat';
@@ -13,6 +13,9 @@ import { GroupInfoModal } from '../components/GroupInfoModal';
 import { SyncRealWaModal } from '../components/SyncRealWaModal';
 import { CallModal } from '../components/CallModal';
 import { UserProfileModal } from '../components/UserProfileModal';
+import { StatusDrawer } from '../components/StatusDrawer';
+import { CreateStoryModal } from '../components/CreateStoryModal';
+import { StoryViewerModal } from '../components/StoryViewerModal';
 import { getStoredTheme, saveStoredTheme } from '../utils/storage';
 
 const SESSION_USER_KEY = 'wa_clone_active_user_v3';
@@ -27,6 +30,13 @@ export default function HomePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [inspectedUser, setInspectedUser] = useState<ContactItem | UserAccount | null>(null);
+
+  // Stories
+  const [myStories, setMyStories] = useState<StoryItem[]>([]);
+  const [friendStories, setFriendStories] = useState<UserStoryGroup[]>([]);
+  const [showStatusDrawer, setShowStatusDrawer] = useState(false);
+  const [showCreateStory, setShowCreateStory] = useState(false);
+  const [activeViewingStoryGroup, setActiveViewingStoryGroup] = useState<UserStoryGroup | null>(null);
 
   // Modals
   const [showNewChat, setShowNewChat] = useState(false);
@@ -276,6 +286,20 @@ export default function HomePage() {
             ? null
             : prev
         );
+      }
+
+      // 5. Update active stories
+      try {
+        const storyRes = await fetch(`/api/stories?userId=${currentUser.id}`);
+        if (storyRes.ok) {
+          const sData = await storyRes.json();
+          if (sData.success) {
+            setMyStories(sData.myStories || []);
+            setFriendStories(sData.friendStories || []);
+          }
+        }
+      } catch (sErr) {
+        console.warn('Stories sync error:', sErr);
       }
 
       initialLoadDoneRef.current = true;
@@ -615,6 +639,142 @@ export default function HomePage() {
     localStorage.setItem(SESSION_USER_KEY, JSON.stringify(updated));
   };
 
+  // Story handlers
+  const handleStoryCreated = (story: StoryItem) => {
+    setMyStories((prev) => [...prev, story]);
+    setShowCreateStory(false);
+    syncRealtimeData();
+  };
+
+  const handleDeleteStory = async (storyId: string) => {
+    if (!currentUser) return;
+    try {
+      await fetch('/api/stories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          storyId,
+          userId: currentUser.id,
+        }),
+      });
+      setMyStories((prev) => prev.filter((s) => s.id !== storyId));
+      setActiveViewingStoryGroup((prev) => {
+        if (!prev) return null;
+        const remaining = prev.stories.filter((s) => s.id !== storyId);
+        if (remaining.length === 0) return null;
+        return { ...prev, stories: remaining };
+      });
+    } catch (err) {
+      console.error('Delete story error:', err);
+    }
+  };
+
+  const handleStoryViewed = async (storyId: string) => {
+    if (!currentUser) return;
+    try {
+      await fetch('/api/stories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'view',
+          storyId,
+          viewerId: currentUser.id,
+        }),
+      });
+      setFriendStories((prev) =>
+        prev.map((g) => {
+          const updatedStories = g.stories.map((s) => {
+            if (s.id === storyId && !s.viewers?.includes(currentUser.id)) {
+              return { ...s, viewers: [...(s.viewers || []), currentUser.id] };
+            }
+            return s;
+          });
+          const hasUnviewed = updatedStories.some((s) => !s.viewers?.includes(currentUser.id));
+          return { ...g, stories: updatedStories, hasUnviewed };
+        })
+      );
+    } catch (err) {
+      console.error('View story error:', err);
+    }
+  };
+
+  const handleSendStoryReply = async (recipientId: string, replyText: string) => {
+    if (!currentUser || !recipientId || !replyText.trim()) return;
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senderId: currentUser.id,
+          recipientId,
+          type: 'text',
+          text: `Membalas status: ${replyText}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        if (activeContactId === recipientId) {
+          setMessages((prev) => [...prev, data.message]);
+        }
+        channelRef.current?.postMessage(data.message);
+        syncRealtimeData();
+      }
+    } catch (err) {
+      console.error('Send story reply error:', err);
+    }
+  };
+
+  const handleNextStoryGroup = () => {
+    if (!activeViewingStoryGroup || !currentUser) return;
+    const allGroups: UserStoryGroup[] = [
+      ...(myStories.length > 0
+        ? [
+            {
+              userId: currentUser.id,
+              userName: currentUser.name,
+              userAvatar: currentUser.avatar,
+              isSelf: true,
+              stories: myStories,
+              hasUnviewed: false,
+              latestTimestamp: myStories[myStories.length - 1].createdAt,
+            },
+          ]
+        : []),
+      ...friendStories,
+    ];
+    const idx = allGroups.findIndex((g) => g.userId === activeViewingStoryGroup.userId);
+    if (idx !== -1 && idx < allGroups.length - 1) {
+      setActiveViewingStoryGroup(allGroups[idx + 1]);
+    } else {
+      setActiveViewingStoryGroup(null);
+    }
+  };
+
+  const handlePrevStoryGroup = () => {
+    if (!activeViewingStoryGroup || !currentUser) return;
+    const allGroups: UserStoryGroup[] = [
+      ...(myStories.length > 0
+        ? [
+            {
+              userId: currentUser.id,
+              userName: currentUser.name,
+              userAvatar: currentUser.avatar,
+              isSelf: true,
+              stories: myStories,
+              hasUnviewed: false,
+              latestTimestamp: myStories[myStories.length - 1].createdAt,
+            },
+          ]
+        : []),
+      ...friendStories,
+    ];
+    const idx = allGroups.findIndex((g) => g.userId === activeViewingStoryGroup.userId);
+    if (idx > 0) {
+      setActiveViewingStoryGroup(allGroups[idx - 1]);
+    }
+  };
+
   const handleStartChatWithUser = (targetUser: UserAccount) => {
     setContacts((prev) => {
       const existing = prev.find((c) => c.id === targetUser.id);
@@ -708,31 +868,45 @@ export default function HomePage() {
 
       {/* Main WhatsApp Window Container */}
       <div className="w-full h-full md:w-[96vw] md:h-[95vh] md:max-w-[1600px] bg-white dark:bg-[#111b21] md:rounded-lg shadow-2xl flex overflow-hidden z-10 relative">
-        {/* Left Side: Contact List */}
+        {/* Left Side: Contact List or Status Drawer */}
         <div
           className={`${
             activeContactId ? 'hidden md:flex' : 'flex'
-          } w-full md:w-[400px] lg:w-[440px] h-full flex-col flex-shrink-0`}
+          } w-full md:w-[400px] lg:w-[440px] h-full flex-col flex-shrink-0 relative overflow-hidden`}
         >
-          <ChatList
-            contacts={contacts}
-            activeContactId={activeContactId}
-            onSelectContact={(id) => {
-              setActiveContactId(id);
-              setContacts((prev) =>
-                prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
-              );
-            }}
-            currentUser={currentUser}
-            theme={theme}
-            onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-            onOpenNewChat={() => setShowNewChat(true)}
-            onOpenNewGroup={() => setShowNewGroup(true)}
-            onOpenEditProfile={() => setShowEditProfile(true)}
-            onOpenSyncRealWa={() => setShowSyncRealWa(true)}
-            onOpenProfile={(c) => setInspectedUser(c)}
-            onLogout={handleLogout}
-          />
+          {showStatusDrawer ? (
+            <StatusDrawer
+              currentUser={currentUser}
+              myStories={myStories}
+              friendStories={friendStories}
+              onClose={() => setShowStatusDrawer(false)}
+              onOpenCreateStory={() => setShowCreateStory(true)}
+              onViewStoryGroup={(group) => setActiveViewingStoryGroup(group)}
+            />
+          ) : (
+            <ChatList
+              contacts={contacts}
+              activeContactId={activeContactId}
+              onSelectContact={(id) => {
+                setActiveContactId(id);
+                setContacts((prev) =>
+                  prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+                );
+              }}
+              currentUser={currentUser}
+              theme={theme}
+              onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+              onOpenNewChat={() => setShowNewChat(true)}
+              onOpenNewGroup={() => setShowNewGroup(true)}
+              onOpenEditProfile={() => setShowEditProfile(true)}
+              onOpenSyncRealWa={() => setShowSyncRealWa(true)}
+              onOpenProfile={(c) => setInspectedUser(c)}
+              onOpenStatus={() => setShowStatusDrawer(true)}
+              hasUnviewedStories={friendStories.some((f) => f.hasUnviewed)}
+              storyUsersWithActiveStories={new Set(friendStories.map((f) => f.userId))}
+              onLogout={handleLogout}
+            />
+          )}
         </div>
 
         {/* Right Side: Active Chat Window or Empty */}
@@ -842,6 +1016,29 @@ export default function HomePage() {
             handleStartCall(type, target.id);
             setInspectedUser(null);
           }}
+        />
+      )}
+
+      {/* Create Story Modal */}
+      {showCreateStory && currentUser && (
+        <CreateStoryModal
+          currentUser={currentUser}
+          onClose={() => setShowCreateStory(false)}
+          onStoryCreated={handleStoryCreated}
+        />
+      )}
+
+      {/* Story Viewer Modal */}
+      {activeViewingStoryGroup && currentUser && (
+        <StoryViewerModal
+          storyGroup={activeViewingStoryGroup}
+          currentUserId={currentUser.id}
+          onClose={() => setActiveViewingStoryGroup(null)}
+          onNextGroup={handleNextStoryGroup}
+          onPrevGroup={handlePrevStoryGroup}
+          onDeleteStory={handleDeleteStory}
+          onStoryViewed={handleStoryViewed}
+          onSendReply={handleSendStoryReply}
         />
       )}
     </div>
