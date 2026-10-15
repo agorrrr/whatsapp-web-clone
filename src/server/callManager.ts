@@ -200,7 +200,7 @@ export async function setCallOffer(callId: string, sdpOffer: string): Promise<Ca
       } else {
         db.activeCalls.push(call);
       }
-      writeDb(db).catch(() => {});
+      await writeDb(db);
     }
   } catch {}
 
@@ -258,7 +258,7 @@ export async function answerCallSession(
       } else {
         db.activeCalls.push(call);
       }
-      writeDb(db).catch(() => {});
+      await writeDb(db);
     }
   } catch {}
 
@@ -332,7 +332,7 @@ export async function inviteParticipantToCall(
       } else {
         db.activeCalls.push(call);
       }
-      writeDb(db).catch(() => {});
+      await writeDb(db);
     }
   } catch {}
 
@@ -373,7 +373,7 @@ export async function setMeshSignal(
       } else {
         db.activeCalls.push(call);
       }
-      writeDb(db).catch(() => {});
+      await writeDb(db);
     }
   } catch {}
 
@@ -406,7 +406,7 @@ export async function addIceCandidate(callId: string, candidate: any, fromUserId
       const idx = db.activeCalls.findIndex((c) => c.id === callId);
       if (idx !== -1) {
         db.activeCalls[idx] = call;
-        writeDb(db).catch(() => {});
+        await writeDb(db);
       }
     }
   } catch {}

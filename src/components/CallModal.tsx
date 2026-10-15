@@ -148,24 +148,45 @@ export const CallModal: React.FC<CallModalProps> = ({
     });
   };
 
-  // Fallback placeholder track if OS locks hardware camera
+  // Fallback placeholder track if OS locks hardware camera (e.g. multi-tab testing)
   const createPlaceholderVideoTrack = (label: string): MediaStreamTrack => {
     const canvas = document.createElement('canvas');
     canvas.width = 640;
     canvas.height = 480;
     const ctx = canvas.getContext('2d');
-    if (ctx) {
+    let frame = 0;
+    const draw = () => {
+      if (!ctx) return;
       ctx.fillStyle = '#111b21';
       ctx.fillRect(0, 0, 640, 480);
       ctx.fillStyle = '#00a884';
-      ctx.font = '20px sans-serif';
+      ctx.font = 'bold 24px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(label, 320, 240);
-    }
+      ctx.fillText(label, 320, 220);
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#8696a0';
+      ctx.fillText('Simulasi Video Aktif', 320, 255);
+      ctx.fillStyle = '#00a884';
+      ctx.beginPath();
+      ctx.arc(320 + Math.sin(frame * 0.2) * 40, 290, 8, 0, Math.PI * 2);
+      ctx.fill();
+      frame++;
+    };
+    draw();
+    const animTimer = setInterval(draw, 200);
+
     const stream = (canvas as any).captureStream
-      ? (canvas as any).captureStream(5)
-      : (canvas as any).mozCaptureStream(5);
-    return stream.getVideoTracks()[0];
+      ? (canvas as any).captureStream(15)
+      : (canvas as any).mozCaptureStream(15);
+    const track: MediaStreamTrack = stream.getVideoTracks()[0];
+    if (track) {
+      const origStop = track.stop.bind(track);
+      track.stop = () => {
+        clearInterval(animTimer);
+        origStop();
+      };
+    }
+    return track;
   };
 
   // Synthesize WhatsApp-style ringing audio using native Web Audio API
@@ -311,7 +332,7 @@ export const CallModal: React.FC<CallModalProps> = ({
               const placeholder = createPlaceholderVideoTrack('Kamera dipakai tab lain');
               stream.addTrack(placeholder);
             }
-            setIsVideoDisabled(true);
+            setIsVideoDisabled(false);
           } catch (audioErr) {
             console.warn('[WebRTC] Audio fallback failed, generating synthesized track:', audioErr);
             const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -624,13 +645,18 @@ export const CallModal: React.FC<CallModalProps> = ({
     let sdpOffer = call.sdpOffer;
 
     if (!sdpOffer) {
-      try {
-        const res = await fetch(`/api/calls?callId=${encodeURIComponent(call.id)}`);
-        const data = await res.json();
-        if (data?.call?.sdpOffer) {
-          sdpOffer = data.call.sdpOffer;
-        }
-      } catch {}
+      // Retry fetching sdpOffer up to 10 times (4 seconds) if caller is still gathering ICE
+      for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+          const res = await fetch(`/api/calls?callId=${encodeURIComponent(call.id)}`);
+          const data = await res.json();
+          if (data?.call?.sdpOffer) {
+            sdpOffer = data.call.sdpOffer;
+            break;
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
 
     if (sdpOffer) {
@@ -651,6 +677,29 @@ export const CallModal: React.FC<CallModalProps> = ({
       onAnswerCall(call.id, 'simulated_answer');
     }
   };
+
+  // Receiver side: react if sdpOffer arrives or updates after answering
+  useEffect(() => {
+    const pc = peerConnectionRef.current;
+    if (!pc || isCaller || !hasAnswered || !call.sdpOffer) return;
+    if (call.sdpOffer === 'simulated_answer') return;
+    if (pc.remoteDescription) return;
+
+    async function processLateOffer() {
+      try {
+        await pc!.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: call.sdpOffer }));
+        await drainPendingIceCandidates(pc!);
+        const answer = await pc!.createAnswer();
+        await pc!.setLocalDescription(answer);
+        const fullAnswerSdp = await waitForIceGathering(pc!);
+        onAnswerCall(call.id, fullAnswerSdp);
+      } catch (err) {
+        console.warn('[WebRTC] Late offer process error:', err);
+      }
+    }
+
+    processLateOffer();
+  }, [call.sdpOffer, hasAnswered, isCaller, call.id, onAnswerCall]);
 
   // Toggle Mute
   const toggleMute = () => {
@@ -817,7 +866,13 @@ export const CallModal: React.FC<CallModalProps> = ({
 
       {/* Remote Video for 1-on-1 */}
       <video
-        ref={remoteVideoRef}
+        ref={(el) => {
+          (remoteVideoRef as any).current = el;
+          if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
+            el.srcObject = remoteStreamRef.current;
+            el.play().catch(() => {});
+          }
+        }}
         autoPlay
         playsInline
         muted={true}
@@ -946,7 +1001,13 @@ export const CallModal: React.FC<CallModalProps> = ({
             {call.type === 'video' && !isVideoDisabled && (
               <div className="absolute top-16 right-4 w-28 h-40 rounded-xl overflow-hidden border-2 border-[#00a884] shadow-2xl z-20 bg-black">
                 <video
-                  ref={localVideoRef}
+                  ref={(el) => {
+                    (localVideoRef as any).current = el;
+                    if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
+                      el.srcObject = localStreamRef.current;
+                      el.play().catch(() => {});
+                    }
+                  }}
                   autoPlay
                   muted
                   playsInline
