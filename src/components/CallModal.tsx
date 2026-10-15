@@ -251,6 +251,15 @@ export const CallModal: React.FC<CallModalProps> = ({
     return () => stopRingtone();
   }, [call.status, isCaller]);
 
+  // Auto-hangup on ringing timeout (40 seconds)
+  useEffect(() => {
+    if (call.status !== 'ringing') return;
+    const timer = setTimeout(() => {
+      onEndCall(call.id, isCaller ? 'ended' : 'rejected');
+    }, 40000);
+    return () => clearTimeout(timer);
+  }, [call.id, call.status, isCaller, onEndCall]);
+
   // Duration timer
   useEffect(() => {
     if (call.status !== 'connected') return;

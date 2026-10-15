@@ -12,12 +12,13 @@ if (!global.__waActiveCalls) {
 
 const activeCalls = global.__waActiveCalls;
 
-// Prune calls older than 2 minutes
+// Prune calls older than 2 minutes or unanswered ringing older than 40s
 function pruneOldCalls() {
   const now = Date.now();
   activeCalls.forEach((call, id) => {
-    if (now - call.updatedAt > 120000 || call.status === 'ended' || call.status === 'rejected') {
-      if (now - call.updatedAt > 15000) {
+    const isRingingTimeout = call.status === 'ringing' && now - (call.startedAt || call.updatedAt) > 40000;
+    if (now - call.updatedAt > 120000 || call.status === 'ended' || call.status === 'rejected' || isRingingTimeout) {
+      if (now - call.updatedAt > 5000 || isRingingTimeout) {
         activeCalls.delete(id);
       }
     }
@@ -109,7 +110,7 @@ export async function startCallSession({
       (c) => Date.now() - c.updatedAt < 120000 && c.status !== 'ended' && c.status !== 'rejected'
     );
     db.activeCalls.push(session);
-    writeDb(db).catch(() => {});
+    await writeDb(db);
   } catch {}
 
   return session;
@@ -117,16 +118,20 @@ export async function startCallSession({
 
 export async function getActiveCallForUser(userId: string): Promise<CallSession | null> {
   pruneOldCalls();
+  const now = Date.now();
   let found: CallSession | null = null;
   activeCalls.forEach((call) => {
     if (!found) {
-      const isDirect = (call.callerId === userId || call.receiverId === userId);
+      const isDirect = call.callerId === userId || call.receiverId === userId;
       const isGroupMember = Boolean(
         call.isGroup && (call.groupMembers?.includes(userId) || call.invitedUsers?.includes(userId))
       );
+      const isExpiredRinging =
+        call.status === 'ringing' && now - (call.startedAt || call.updatedAt) > 40000;
       if (
         (isDirect || isGroupMember) &&
-        (call.status === 'ringing' || call.status === 'connected')
+        (call.status === 'ringing' || call.status === 'connected') &&
+        !isExpiredRinging
       ) {
         found = call;
       }
@@ -137,13 +142,14 @@ export async function getActiveCallForUser(userId: string): Promise<CallSession 
   try {
     const db = await readDb();
     if (Array.isArray(db.activeCalls)) {
-      const now = Date.now();
       const match = db.activeCalls.find(
         (c) =>
-          ((c.callerId === userId || c.receiverId === userId) ||
+          (c.callerId === userId ||
+            c.receiverId === userId ||
             (c.isGroup && (c.groupMembers?.includes(userId) || c.invitedUsers?.includes(userId)))) &&
           (c.status === 'ringing' || c.status === 'connected') &&
-          now - c.updatedAt < 120000
+          now - c.updatedAt < 120000 &&
+          !(c.status === 'ringing' && now - (c.startedAt || c.updatedAt) > 40000)
       );
       if (match) {
         activeCalls.set(match.id, match);
@@ -411,21 +417,38 @@ export async function endCallSession(
   reason: 'ended' | 'rejected' = 'ended',
   userId?: string
 ): Promise<CallSession | null> {
-  const call = activeCalls.get(callId);
-  if (!call) return null;
+  let call = activeCalls.get(callId);
+  let db: any = null;
+  try {
+    db = await readDb();
+  } catch {}
+
+  if (!call && db?.activeCalls) {
+    call = db.activeCalls.find((c: any) => c.id === callId);
+  }
+
+  if (!call) {
+    // Clean up activeCalls entry in DB if lingering
+    if (db?.activeCalls) {
+      db.activeCalls = db.activeCalls.filter((c: any) => c.id !== callId);
+      try {
+        await writeDb(db);
+      } catch {}
+    }
+    return null;
+  }
 
   // Group call participant leaving: keep call alive for remaining members if more than 1 left
   if (call.isGroup && userId && call.participants && call.participants.length > 2) {
-    call.participants = call.participants.filter((p) => p.id !== userId);
+    call.participants = call.participants.filter((p: any) => p.id !== userId);
     call.updatedAt = Date.now();
     activeCalls.set(callId, call);
     try {
-      const db = await readDb();
-      if (db.activeCalls) {
-        const idx = db.activeCalls.findIndex((c) => c.id === callId);
+      if (db?.activeCalls) {
+        const idx = db.activeCalls.findIndex((c: any) => c.id === callId);
         if (idx !== -1) {
           db.activeCalls[idx] = call;
-          writeDb(db).catch(() => {});
+          await writeDb(db);
         }
       }
     } catch {}
@@ -486,13 +509,20 @@ export async function endCallSession(
     console.warn('[CallManager] Failed to record call in history:', err);
   }
 
+  // Remove from in-memory and DB
+  activeCalls.delete(callId);
+
   try {
-    const db = await readDb();
-    if (db.activeCalls) {
-      db.activeCalls = db.activeCalls.filter((c) => c.id !== callId);
-      writeDb(db).catch(() => {});
+    if (!db) {
+      db = await readDb();
     }
-  } catch {}
+    if (db?.activeCalls) {
+      db.activeCalls = db.activeCalls.filter((c: any) => c.id !== callId);
+      await writeDb(db);
+    }
+  } catch (err) {
+    console.warn('[CallManager] Error deleting call from db:', err);
+  }
 
   return call;
 }

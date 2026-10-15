@@ -52,6 +52,7 @@ export default function HomePage() {
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef<boolean>(false);
   const isSyncingRef = useRef<boolean>(false);
+  const dismissedCallIdsRef = useRef<Map<string, number>>(new Map());
 
   // Initialize theme & session
   useEffect(() => {
@@ -319,20 +320,31 @@ export default function HomePage() {
 
       // 4. Update active call status
       if (data.activeCall) {
-        setActiveCall((prev) => {
-          if (
-            !prev ||
-            prev.id !== data.activeCall.id ||
-            prev.status !== data.activeCall.status ||
-            prev.sdpOffer !== data.activeCall.sdpOffer ||
-            prev.sdpAnswer !== data.activeCall.sdpAnswer ||
-            (prev.callerIce?.length || 0) !== (data.activeCall.callerIce?.length || 0) ||
-            (prev.receiverIce?.length || 0) !== (data.activeCall.receiverIce?.length || 0)
-          ) {
-            return data.activeCall;
-          }
-          return prev;
-        });
+        const dismissedAt = dismissedCallIdsRef.current.get(data.activeCall.id);
+        const isDismissed = dismissedAt && Date.now() - dismissedAt < 60000;
+
+        if (
+          isDismissed ||
+          data.activeCall.status === 'ended' ||
+          data.activeCall.status === 'rejected'
+        ) {
+          setActiveCall(null);
+        } else {
+          setActiveCall((prev) => {
+            if (
+              !prev ||
+              prev.id !== data.activeCall.id ||
+              prev.status !== data.activeCall.status ||
+              prev.sdpOffer !== data.activeCall.sdpOffer ||
+              prev.sdpAnswer !== data.activeCall.sdpAnswer ||
+              (prev.callerIce?.length || 0) !== (data.activeCall.callerIce?.length || 0) ||
+              (prev.receiverIce?.length || 0) !== (data.activeCall.receiverIce?.length || 0)
+            ) {
+              return data.activeCall;
+            }
+            return prev;
+          });
+        }
       } else {
         setActiveCall((prev) =>
           prev?.status === 'ringing' || prev?.status === 'ended' || prev?.status === 'rejected'
@@ -427,6 +439,9 @@ export default function HomePage() {
           syncRealtimeData();
           return;
         } else if (event.data?.type === 'call_end') {
+          if (event.data?.callId) {
+            dismissedCallIdsRef.current.set(event.data.callId, Date.now());
+          }
           setActiveCall(null);
         }
         syncRealtimeData();
@@ -674,6 +689,8 @@ export default function HomePage() {
   };
 
   const handleEndCall = async (callId: string, reason: 'ended' | 'rejected' = 'ended') => {
+    dismissedCallIdsRef.current.set(callId, Date.now());
+    setActiveCall(null);
     try {
       await fetch('/api/calls', {
         method: 'POST',
@@ -685,12 +702,10 @@ export default function HomePage() {
           userId: currentUser?.id,
         }),
       });
-      setActiveCall(null);
       channelRef.current?.postMessage({ type: 'call_end', callId });
       syncRealtimeData();
     } catch (err) {
       console.error('Call end error:', err);
-      setActiveCall(null);
     }
   };
 
