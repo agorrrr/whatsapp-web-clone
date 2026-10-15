@@ -18,6 +18,8 @@ import {
   Search,
   X,
   Check,
+  ScreenShare,
+  ScreenShareOff,
 } from 'lucide-react';
 
 interface CallModalProps {
@@ -62,6 +64,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasAnswered, setHasAnswered] = useState(isCaller || call.status === 'connected');
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   // Invite modal state
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -74,6 +77,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const remoteStreamRef = useRef<MediaStream>(new MediaStream());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   // WebRTC core peer connection (1-on-1 or initial join)
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -669,6 +673,68 @@ export const CallModal: React.FC<CallModalProps> = ({
     }
   };
 
+  // Toggle Screen Sharing
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach((t) => t.stop());
+        screenStreamRef.current = null;
+      }
+      setIsScreenSharing(false);
+      const camTrack = localStreamRef.current?.getVideoTracks()[0];
+      if (camTrack) {
+        const sender = peerConnectionRef.current
+          ?.getSenders()
+          .find((s) => s.track?.kind === 'video');
+        if (sender) {
+          sender.replaceTrack(camTrack).catch(() => {});
+        }
+        meshPeerConnectionsRef.current.forEach((pc) => {
+          const meshSender = pc.getSenders().find((s) => s.track?.kind === 'video');
+          if (meshSender) meshSender.replaceTrack(camTrack).catch(() => {});
+        });
+      }
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+    } else {
+      try {
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          alert('Fitur bagi layar tidak didukung di peramban ini.');
+          return;
+        }
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+        const screenTrack = displayStream.getVideoTracks()[0];
+        screenStreamRef.current = displayStream;
+
+        screenTrack.onended = () => {
+          toggleScreenShare();
+        };
+
+        const sender = peerConnectionRef.current
+          ?.getSenders()
+          .find((s) => s.track?.kind === 'video');
+        if (sender) {
+          sender.replaceTrack(screenTrack).catch(() => {});
+        }
+        meshPeerConnectionsRef.current.forEach((pc) => {
+          const meshSender = pc.getSenders().find((s) => s.track?.kind === 'video');
+          if (meshSender) meshSender.replaceTrack(screenTrack).catch(() => {});
+        });
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = displayStream;
+        }
+        setIsScreenSharing(true);
+      } catch (err) {
+        console.warn('Screen share canceled or failed:', err);
+      }
+    }
+  };
+
   const formatDuration = (secs: number) => {
     const m = Math.floor(secs / 60)
       .toString()
@@ -1099,6 +1165,25 @@ export const CallModal: React.FC<CallModalProps> = ({
                 title={isVideoDisabled ? 'Nyalakan Kamera' : 'Matikan Kamera'}
               >
                 {isVideoDisabled ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+              </button>
+            )}
+
+            {/* Screen Share Toggle */}
+            {call.type === 'video' && (
+              <button
+                onClick={toggleScreenShare}
+                className={`p-3.5 rounded-full transition ${
+                  isScreenSharing
+                    ? 'bg-[#00a884] text-white'
+                    : 'bg-[#374248] text-[#aebac1] hover:bg-[#4a575f]'
+                }`}
+                title={isScreenSharing ? 'Hentikan Berbagi Layar' : 'Bagikan Layar'}
+              >
+                {isScreenSharing ? (
+                  <ScreenShareOff className="w-5 h-5" />
+                ) : (
+                  <ScreenShare className="w-5 h-5" />
+                )}
               </button>
             )}
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   saveMessage,
+  deleteMessageForEveryone,
   getMessagesBetween,
   getMessagesForUser,
   getChatRoomId,
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { senderId, recipientId, type, text, mediaUrl, audioDuration, replyTo } = body;
+    const { senderId, recipientId, type, text, mediaUrl, fileName, fileSize, audioDuration, replyTo } = body;
 
     if (!senderId || !recipientId) {
       return NextResponse.json(
@@ -101,6 +102,8 @@ export async function POST(req: Request) {
       type: type || 'text',
       text,
       mediaUrl,
+      fileName,
+      fileSize,
       audioDuration,
       timestamp: timeString,
       status: sentToRealWa ? 'sent' : 'delivered',
@@ -114,6 +117,33 @@ export async function POST(req: Request) {
   } catch (err: any) {
     return NextResponse.json(
       { success: false, message: err?.message || 'Gagal mengirim pesan' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const messageId = searchParams.get('messageId');
+    const userId = searchParams.get('userId');
+
+    if (!messageId || !userId) {
+      return NextResponse.json(
+        { success: false, message: 'messageId and userId required' },
+        { status: 400 }
+      );
+    }
+
+    const updated = await deleteMessageForEveryone(messageId, userId);
+    if (!updated) {
+      return NextResponse.json({ success: false, message: 'Pesan tidak ditemukan' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, message: updated });
+  } catch (err: any) {
+    return NextResponse.json(
+      { success: false, message: err?.message || 'Gagal menghapus pesan' },
       { status: 500 }
     );
   }

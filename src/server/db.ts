@@ -295,6 +295,22 @@ export async function saveMessage(msg: Message): Promise<Message> {
   return msg;
 }
 
+export async function deleteMessageForEveryone(messageId: string, userId: string): Promise<Message | null> {
+  const db = await readDb();
+  const msg = db.messages.find((m) => m.id === messageId);
+  if (!msg) return null;
+  if (msg.senderId !== userId) {
+    throw new Error('Hanya pengirim yang dapat menghapus pesan untuk semua orang');
+  }
+  msg.isDeleted = true;
+  msg.text = 'Pesan ini telah dihapus';
+  msg.mediaUrl = undefined;
+  msg.fileName = undefined;
+  msg.fileSize = undefined;
+  await writeDb(db);
+  return msg;
+}
+
 export async function getMessagesBetween(userA: string, userB: string): Promise<Message[]> {
   const db = await readDb();
   const roomId = getChatRoomId(userA, userB);

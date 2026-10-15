@@ -21,6 +21,7 @@ import {
   Lock,
   Phone,
   Video,
+  FileText,
 } from 'lucide-react';
 
 interface ChatWindowProps {
@@ -31,11 +32,14 @@ interface ChatWindowProps {
     type: MessageType;
     text?: string;
     mediaUrl?: string;
+    fileName?: string;
+    fileSize?: string;
     audioDuration?: number;
     replyTo?: Message;
   }) => void;
   onReaction: (messageId: string, emoji: string) => void;
   onClearChat: () => void;
+  onDeleteMessage?: (messageId: string) => void;
   onBackMobile?: () => void;
   onOpenGroupInfo?: () => void;
   onOpenProfile?: (contact: ContactItem) => void;
@@ -51,6 +55,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onSendMessage,
   onReaction,
   onClearChat,
+  onDeleteMessage,
   onBackMobile,
   onOpenGroupInfo,
   onOpenProfile,
@@ -67,9 +72,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const docInputRef = useRef<HTMLInputElement | null>(null);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -108,6 +116,37 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
     e.target.value = '';
     setShowAttachmentMenu(false);
+  };
+
+  const handleDocumentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 8 * 1024 * 1024) {
+      alert('Ukuran berkas dokumen maksimal 8MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const sizeStr =
+        file.size > 1024 * 1024
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
+
+      onSendMessage({
+        type: 'document',
+        mediaUrl: dataUrl,
+        fileName: file.name,
+        fileSize: sizeStr,
+        replyTo: replyingMessage || undefined,
+      });
+      setReplyingMessage(null);
+      setShowAttachmentMenu(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSendImage = (url: string, caption: string) => {
@@ -223,7 +262,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             </>
           )}
 
-          <button className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors" title="Cari di chat">
+          <button
+            onClick={() => {
+              setShowSearch((s) => !s);
+              if (showSearch) setSearchQuery('');
+            }}
+            className={`p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${
+              showSearch ? 'text-[#00a884] bg-black/5 dark:bg-white/5' : ''
+            }`}
+            title="Cari di chat"
+          >
             <Search className="w-5 h-5" />
           </button>
 
@@ -274,6 +322,55 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
       </div>
 
+      {/* In-Chat Search Bar */}
+      {showSearch && (
+        <div className="px-4 py-2.5 bg-[#f0f2f5] dark:bg-[#111b21] border-b border-[#e9edef] dark:border-[#222e35] flex items-center justify-between z-20 shadow-sm animate-fade-in">
+          <div className="flex-1 flex items-center bg-white dark:bg-[#202c33] rounded-lg px-3 py-1.5 border border-[#e9edef] dark:border-[#2a3942] mr-3">
+            <Search className="w-4 h-4 text-[#8696a0] mr-2 flex-shrink-0" />
+            <input
+              type="text"
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari pesan di obrolan..."
+              className="w-full bg-transparent text-sm text-[#111b21] dark:text-[#e9edef] placeholder-[#8696a0] focus:outline-none"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] ml-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center space-x-2 text-xs text-[#8696a0]">
+            {searchQuery && (
+              <span className="font-medium text-[#00a884]">
+                {
+                  messages.filter(
+                    (m) =>
+                      (m.text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      (m.fileName || '').toLowerCase().includes(searchQuery.toLowerCase())
+                  ).length
+                }{' '}
+                ditemukan
+              </span>
+            )}
+            <button
+              onClick={() => {
+                setShowSearch(false);
+                setSearchQuery('');
+              }}
+              className="p-1 rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-[#54656f] dark:text-[#aebac1]"
+              title="Tutup pencarian"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages Scroll Area */}
       <div
         className={`flex-1 overflow-y-auto px-4 md:px-12 py-4 ${
@@ -296,7 +393,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
 
         {/* Message bubbles */}
-        {messages.map((msg) => (
+        {(searchQuery.trim()
+          ? messages.filter(
+              (m) =>
+                (m.text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (m.fileName || '').toLowerCase().includes(searchQuery.toLowerCase())
+            )
+          : messages
+        ).map((msg) => (
           <MessageBubble
             key={msg.id}
             message={msg}
@@ -305,6 +409,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             onReaction={onReaction}
             onImageClick={(url) => setLightboxImage(url)}
             onSenderClick={onSenderClick}
+            onDeleteMessage={onDeleteMessage}
           />
         ))}
 
@@ -386,6 +491,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   </div>
                   <span>Foto & Galeri</span>
                 </button>
+
+                <button
+                  onClick={() => docInputRef.current?.click()}
+                  className="flex items-center space-x-3 text-xs font-medium text-[#111b21] dark:text-[#d1d7db] hover:bg-black/5 dark:hover:bg-white/5 p-2 rounded-lg"
+                >
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-500 flex items-center justify-center text-white">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <span>Dokumen & Berkas</span>
+                </button>
               </div>
             )}
           </div>
@@ -396,6 +511,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             accept="image/*"
             className="hidden"
             onChange={handleImageFileChange}
+          />
+
+          <input
+            ref={docInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+            className="hidden"
+            onChange={handleDocumentFileChange}
           />
 
           {/* Input text */}

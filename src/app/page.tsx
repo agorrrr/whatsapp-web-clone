@@ -64,6 +64,10 @@ export default function HomePage() {
       }
     } catch {}
 
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+
     setMounted(true);
   }, []);
 
@@ -152,19 +156,49 @@ export default function HomePage() {
         });
       }
 
-      // 2. Track new incoming messages & play sound
+      // 2. Track new incoming messages & play sound & show native notification
       if (Array.isArray(data.allUserMessages)) {
         let hasNewIncoming = false;
+        let lastIncomingMsg: Message | null = null;
         data.allUserMessages.forEach((m: Message) => {
           if (!seenMessageIdsRef.current.has(m.id)) {
             seenMessageIdsRef.current.add(m.id);
             if (m.senderId !== currentUser.id && initialLoadDoneRef.current) {
               hasNewIncoming = true;
+              lastIncomingMsg = m;
             }
           }
         });
         if (hasNewIncoming) {
           playNotificationSound();
+          if (
+            lastIncomingMsg &&
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            Notification.permission === 'granted' &&
+            (document.hidden || !document.hasFocus())
+          ) {
+            try {
+              const msgRef: Message = lastIncomingMsg;
+              const notif = new Notification(msgRef.senderName || 'Pesan Baru', {
+                body:
+                  msgRef.text ||
+                  (msgRef.type === 'document'
+                    ? `Berkas: ${msgRef.fileName || 'Dokumen'}`
+                    : msgRef.type === 'audio'
+                    ? 'Pesan Suara'
+                    : 'Media Foto/Stiker'),
+                icon: '/favicon.ico',
+              });
+              notif.onclick = () => {
+                window.focus();
+                if (msgRef.senderId) {
+                  setActiveContactId(msgRef.senderId);
+                }
+                notif.close();
+              };
+            } catch {}
+          }
         }
       }
 
@@ -363,6 +397,16 @@ export default function HomePage() {
             };
           });
           return;
+        } else if (event.data?.type === 'delete_message') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === event.data.messageId
+                ? event.data.updatedMessage || { ...m, isDeleted: true, text: 'Pesan ini telah dihapus' }
+                : m
+            )
+          );
+          syncRealtimeData();
+          return;
         } else if (event.data?.type === 'call_end') {
           setActiveCall(null);
         }
@@ -396,12 +440,16 @@ export default function HomePage() {
     type,
     text,
     mediaUrl,
+    fileName,
+    fileSize,
     audioDuration,
     replyTo,
   }: {
     type: MessageType;
     text?: string;
     mediaUrl?: string;
+    fileName?: string;
+    fileSize?: string;
     audioDuration?: number;
     replyTo?: Message;
   }) => {
@@ -417,6 +465,8 @@ export default function HomePage() {
           type,
           text,
           mediaUrl,
+          fileName,
+          fileSize,
           audioDuration,
           replyTo: replyTo
             ? {
@@ -438,6 +488,30 @@ export default function HomePage() {
       }
     } catch (err) {
       console.error('Failed to send message:', err);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch(
+        `/api/messages?messageId=${encodeURIComponent(messageId)}&userId=${encodeURIComponent(currentUser.id)}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json();
+      if (data.success && data.message) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? data.message : m))
+        );
+        channelRef.current?.postMessage({
+          type: 'delete_message',
+          messageId,
+          updatedMessage: data.message,
+        });
+        syncRealtimeData();
+      }
+    } catch (err) {
+      console.error('Delete message error:', err);
     }
   };
 
@@ -923,6 +997,7 @@ export default function HomePage() {
               onSendMessage={handleSendMessage}
               onReaction={handleReaction}
               onClearChat={handleClearChat}
+              onDeleteMessage={handleDeleteMessage}
               onBackMobile={() => setActiveContactId(null)}
               onOpenGroupInfo={() => setShowGroupInfo(true)}
               onOpenProfile={(c) => setInspectedUser(c)}

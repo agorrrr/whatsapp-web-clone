@@ -89,6 +89,7 @@ export interface Message {
     type: MessageType;
   };
   reaction?: string;
+  isDeleted?: boolean;
   sentToRealWa?: boolean;
 }
 

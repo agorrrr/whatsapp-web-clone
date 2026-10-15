@@ -2,7 +2,22 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Message } from '../types/chat';
-import { Check, CheckCheck, Play, Pause, FileText, CornerUpLeft, Smile, Phone, PhoneMissed, Video, VideoOff } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  Play,
+  Pause,
+  FileText,
+  CornerUpLeft,
+  Smile,
+  Phone,
+  PhoneMissed,
+  Video,
+  VideoOff,
+  Download,
+  Trash2,
+  Ban,
+} from 'lucide-react';
 import { createDemoAudioDataUrl } from '../utils/audio';
 
 interface MessageBubbleProps {
@@ -12,6 +27,7 @@ interface MessageBubbleProps {
   onReaction?: (messageId: string, emoji: string) => void;
   onImageClick?: (url: string) => void;
   onSenderClick?: (senderId: string) => void;
+  onDeleteMessage?: (messageId: string) => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -21,6 +37,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onReaction,
   onImageClick,
   onSenderClick,
+  onDeleteMessage,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
@@ -87,6 +104,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current || !audioRef.current.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const pct = Math.max(0, Math.min(1, clickX / rect.width));
+    audioRef.current.currentTime = pct * audioRef.current.duration;
+    setAudioProgress(pct * 100);
+  };
+
   // Sticker has transparent styling without normal bubble box
   if (message.type === 'sticker') {
     return (
@@ -127,8 +153,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             : 'bg-white dark:bg-[#202c33] text-[#111b21] dark:text-[#e9edef] rounded-tl-none'
         }`}
       >
-        {/* Reply Quote preview if present */}
-        {message.replyTo && (
+        {/* DELETED MESSAGE */}
+        {message.isDeleted ? (
+          <div className="flex items-center space-x-1.5 py-1 text-xs italic text-[#667781] dark:text-[#8696a0] pr-14 select-none">
+            <Ban className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Pesan ini telah dihapus</span>
+          </div>
+        ) : (
+          <>
+            {/* Reply Quote preview if present */}
+            {message.replyTo && (
           <div className="mb-1 rounded border-l-4 border-[#00a884] bg-black/5 dark:bg-white/5 p-1.5 text-xs">
             <span className="font-semibold text-[#00a884] block">
               {message.replyTo.senderName}
@@ -177,7 +211,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
             {/* Waveform / Progress bar */}
             <div className="flex-1 flex flex-col justify-center">
-              <div className="relative w-full h-7 flex items-center space-x-0.5">
+              <div
+                className="relative w-full h-7 flex items-center space-x-0.5 cursor-pointer"
+                onClick={handleSeek}
+                title="Klik untuk geser durasi (seek)"
+              >
                 {/* 28 simulated audio wave bars */}
                 {Array.from({ length: 28 }).map((_, i) => {
                   const height = 6 + Math.abs(Math.sin((i * 12) + 2) * 18);
@@ -198,6 +236,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 <button
                   onClick={cyclePlaybackRate}
                   className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 text-[10px] font-bold"
+                  title="Ubah kecepatan putar"
                 >
                   {playbackRate}x
                 </button>
@@ -208,12 +247,23 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         {/* DOCUMENT MESSAGE */}
         {message.type === 'document' && (
-          <div className="flex items-center space-x-3 p-2 bg-black/5 dark:bg-white/5 rounded-md mb-1">
-            <FileText className="w-8 h-8 text-[#00a884]" />
-            <div className="flex-1 overflow-hidden">
+          <div className="flex items-center space-x-3 p-2 bg-black/5 dark:bg-white/5 rounded-md mb-1 hover:bg-black/10 dark:hover:bg-white/10 transition-colors">
+            <FileText className="w-8 h-8 text-[#00a884] flex-shrink-0" />
+            <div className="flex-1 min-w-0 pr-2">
               <div className="font-medium text-xs truncate">{message.fileName || 'Dokumen.pdf'}</div>
               <div className="text-[10px] text-[#667781] dark:text-[#8696a0]">{message.fileSize || '1.2 MB'}</div>
             </div>
+            {message.mediaUrl && (
+              <a
+                href={message.mediaUrl}
+                download={message.fileName || 'dokumen'}
+                className="p-1.5 rounded-full bg-[#00a884]/20 text-[#00a884] hover:bg-[#00a884] hover:text-white transition-colors"
+                title="Unduh berkas"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Download className="w-4 h-4" />
+              </a>
+            )}
           </div>
         )}
 
@@ -260,6 +310,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             {message.text}
           </p>
         )}
+          </>
+        )}
 
         {/* Timestamp and Delivery ticks */}
         <div className="absolute right-2 bottom-1 flex items-center space-x-1 text-[11px] text-[#667781] dark:text-[#8696a0] select-none">
@@ -286,23 +338,40 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       {/* Floating Action Menu (Reply & Quick React) */}
       <div
         className={`opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 ${
-          isMe ? 'left-[-60px]' : 'right-[-60px]'
+          isMe ? 'left-[-90px]' : 'right-[-60px]'
         } flex items-center space-x-1 bg-white/80 dark:bg-[#202c33]/80 backdrop-blur-sm p-1 rounded-full shadow-md z-10`}
       >
-        <button
-          onClick={() => onReply?.(message)}
-          title="Balas"
-          className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-[#667781] dark:text-[#8696a0]"
-        >
-          <CornerUpLeft className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => setShowReactionBar(!showReactionBar)}
-          title="Beri Reaksi"
-          className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-[#667781] dark:text-[#8696a0]"
-        >
-          <Smile className="w-3.5 h-3.5" />
-        </button>
+        {!message.isDeleted && (
+          <>
+            <button
+              onClick={() => onReply?.(message)}
+              title="Balas"
+              className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-[#667781] dark:text-[#8696a0]"
+            >
+              <CornerUpLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setShowReactionBar(!showReactionBar)}
+              title="Beri Reaksi"
+              className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-[#667781] dark:text-[#8696a0]"
+            >
+              <Smile className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+        {isMe && !message.isDeleted && onDeleteMessage && (
+          <button
+            onClick={() => {
+              if (confirm('Tarik / hapus pesan ini untuk semua orang?')) {
+                onDeleteMessage(message.id);
+              }
+            }}
+            title="Hapus untuk semua orang"
+            className="p-1 hover:bg-red-500/10 rounded-full text-[#667781] dark:text-[#8696a0] hover:text-red-500 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Quick Reaction Popup */}
